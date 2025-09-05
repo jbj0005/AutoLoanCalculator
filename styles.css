@@ -28,7 +28,7 @@ body{
   text-align: center;
   row-gap: 8px;
 }
-.header-pills{ display:flex; flex-direction:column; align-items:center; gap:6px }
+.header-pills{ display:flex; flex-direction:row; align-items:center; justify-content:center; gap:8px; flex-wrap:wrap }
 .app-header h1{
   margin: 0;
   font-size: 22px;
