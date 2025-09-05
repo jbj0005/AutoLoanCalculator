@@ -893,6 +893,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   await loadCountyRates();
   loadHomeAddress();
   await ensureHomeCoords();
+  // Version pill from config if provided
+  try {
+    const verEl = document.getElementById('version');
+    if (verEl && window.APP_VERSION){ verEl.textContent = String(window.APP_VERSION); }
+  } catch {}
 
   // Inputs (currency formatter for all except finalPrice which supports expressions)
   ['tradeValue','loanPayoff','cashDown'].forEach(id => {

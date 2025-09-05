@@ -13,8 +13,12 @@
     <script defer src="config.js"></script>
   </head>
   <body>
-    <header class="app-header center">
+    <header class="app-header">
       <h1>Brandon's Auto Loan Calculator</h1>
+      <div class="header-pills">
+        <div id="supabase-status" class="status warn">Supabase not configured</div>
+        <div id="version" class="pill version">v0.1.0</div>
+      </div>
     </header>
 
     <main class="container">
@@ -34,7 +38,6 @@
               <option value="">Select Vehicle</option>
             </select>
           </div>
-          <div id="supabase-status" class="status warn">Supabase not configured</div>
         </div>
         <div class="db-meta">
           <div>City: <span id="dbCity">—</span></div>
