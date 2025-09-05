@@ -778,7 +778,7 @@ function openVehicleModal(mode){
   state.prevFocus = document.activeElement;
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
-  try { setPageInert(modal.parentElement ? modal.parentElement : modal); } catch {}
+  try { setPageInert(modal); } catch {}
   // focus first meaningful control
   const focusEl = document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
   if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
@@ -909,7 +909,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       state.prevFocus = document.activeElement;
       homeModal.classList.add('open');
       homeModal.setAttribute('aria-hidden','false');
-      try { setPageInert(homeModal.parentElement ? homeModal.parentElement : homeModal); } catch {}
+      try { setPageInert(homeModal); } catch {}
       const focusEl = document.getElementById('homeInput');
       if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
     }
