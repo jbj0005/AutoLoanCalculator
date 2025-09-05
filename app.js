@@ -898,10 +898,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     computeAll();
     closeHomeModal();
   };
-  document.getElementById('updateHomeBtn').addEventListener('click', openHomeModal);
-  document.getElementById('homeSave').addEventListener('click', saveHome);
-  document.getElementById('homeCancel').addEventListener('click', closeHomeModal);
-  document.getElementById('homeClose').addEventListener('click', closeHomeModal);
+  const updateHomeBtnEl = document.getElementById('updateHomeBtn'); if (updateHomeBtnEl) updateHomeBtnEl.addEventListener('click', openHomeModal);
+  const homeSaveEl = document.getElementById('homeSave'); if (homeSaveEl) homeSaveEl.addEventListener('click', saveHome);
+  const homeCancelEl = document.getElementById('homeCancel'); if (homeCancelEl) homeCancelEl.addEventListener('click', closeHomeModal);
+  const homeCloseEl = document.getElementById('homeClose'); if (homeCloseEl) homeCloseEl.addEventListener('click', closeHomeModal);
 
   // Backfill geo for saved vehicles (county/coords) and normalize location strings
   async function backfillVehicleGeo(){
@@ -959,7 +959,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       alert('Backfill failed: ' + (e.message || e));
     }
   }
-  document.getElementById('backfillGeoBtn').addEventListener('click', backfillVehicleGeo);
+  const backfillBtn = document.getElementById('backfillGeoBtn'); if (backfillBtn) backfillBtn.addEventListener('click', backfillVehicleGeo);
 
   // Geocode DB location as you type (debounced)
   const debouncedDbLoc = debounce(async () => {
