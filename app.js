@@ -182,6 +182,28 @@ async function geocodeGoogle(query, { biasFL = true } = {}){
   return { lat: Number(loc.lat), lon: Number(loc.lng), city, county, state_code, zip };
 }
 
+// Reverse geocode: lat/lon -> city/county/state/zip
+async function geocodeGoogleReverse(lat, lon){
+  const base = 'https://maps.googleapis.com/maps/api/geocode/json';
+  const url = new URL(base);
+  url.searchParams.set('latlng', `${lat},${lon}`);
+  url.searchParams.set('key', window.GMAPS_API_KEY);
+  const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error('Google reverse geocode failed');
+  const data = await res.json();
+  if (!data.results || !data.results.length) throw new Error('No results');
+  const r = data.results[0];
+  const get = (type, short=false) => {
+    const c = (r.address_components||[]).find(ac => ac.types.includes(type));
+    return c ? (short ? c.short_name : c.long_name) : null;
+  };
+  const city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
+  const county = get('administrative_area_level_2');
+  const state_code = get('administrative_area_level_1', true);
+  const zip = get('postal_code');
+  return { city, county, state_code, zip };
+}
+
 // (Removed Nominatim implementation — using Google only)
 
 function parseLooseLocation(q){
@@ -199,10 +221,16 @@ function parseLooseLocation(q){
 async function geocode(address){
   const q = (address || '').trim();
   if (!q) throw new Error('Empty address');
+  // If no key or geocoding disabled, use a best-effort parser (no county)
   if (!window.GMAPS_API_KEY || window.ENABLE_GOOGLE_GEOCODING === false){
     return parseLooseLocation(q);
   }
-  return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) });
+  try {
+    return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) });
+  } catch (e) {
+    // Fallback to best-effort parse so notes still update even if Google fails/geofenced
+    return parseLooseLocation(q);
+  }
 }
 
 function haversineMi(a, b){
@@ -912,7 +940,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             fields: ['address_components','geometry','name'],
             componentRestrictions: { country: 'us' }
           });
-          ac.addListener('place_changed', () => {
+          ac.addListener('place_changed', async () => {
             const p = ac.getPlace();
             if (!p || !p.address_components) return;
             const get = (type, short=false) => {
@@ -920,11 +948,18 @@ window.addEventListener('DOMContentLoaded', async () => {
               return c ? (short ? c.short_name : c.long_name) : null;
             };
             const city = get('locality') || get('postal_town') || get('sublocality');
-            const county = get('administrative_area_level_2');
+            let county = get('administrative_area_level_2');
             const state_code = get('administrative_area_level_1', true);
             const zip = get('postal_code');
             const lat = p.geometry?.location?.lat?.() ?? null;
             const lon = p.geometry?.location?.lng?.() ?? null;
+            // If county is missing but coords available, try reverse geocoding
+            if ((!county || county === '—') && isFinite(lat) && isFinite(lon) && window.ENABLE_GOOGLE_GEOCODING !== false){
+              try {
+                const rev = await geocodeGoogleReverse(lat, lon);
+                county = rev.county || county;
+              } catch {}
+            }
             state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
             document.getElementById('dbLocationCounty').textContent = county || '—';
             document.getElementById('dbLocationZip').textContent = zip || '—';
@@ -932,6 +967,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
             const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
             const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
+            updateDistanceUI();
+            updateDbMetaUI();
           });
           const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
         } catch (e) {
