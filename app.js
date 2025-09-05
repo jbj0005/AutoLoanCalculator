@@ -80,6 +80,17 @@ function parsePercent(s){
   return isNaN(v) ? 0 : v;
 }
 
+function normalizeLocationFromGeo(geo){
+  if (!geo) return '';
+  const zipOut = geo.zip || '';
+  const st = geo.state_code || (geo.state && /florida/i.test(geo.state) ? 'FL' : null);
+  const parts = [];
+  if (geo.city) parts.push(geo.city);
+  const tail = [st, zipOut].filter(Boolean).join(' ');
+  if (tail) parts.push(tail);
+  return parts.join(', ').trim();
+}
+
 // Parse price expressions for Final Sale Price, supporting formulas like:
 // - "MSRP - 7500"
 // - "82000 - 6%"
@@ -325,16 +336,34 @@ async function saveVehicle(){
   const location = $('#dbLocation').value.trim();
   if (!name){ alert('Enter a vehicle name'); return; }
   let geo = state.dbLocationGeo;
-  if (!geo && location){ try { geo = await geocode(location); } catch{} }
+  if (!geo && location){
+    try { geo = await geocode(location); } catch { geo = null; }
+  }
+  // Improve geo: if we have coords but missing county, try reverse geocode
+  if (geo && (geo.county == null || geo.county === '—') && isFinite(geo.lat) && isFinite(geo.lon) && window.ENABLE_GOOGLE_GEOCODING !== false){
+    try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
+  }
+  // Normalize location string if we have structured geo
+  let locationNorm = location;
+  if (geo){
+    const norm = normalizeLocationFromGeo(geo);
+    if (norm) locationNorm = norm;
+  }
 
   if (selected){
     const { error } = await state.supabase.from('vehicles')
-      .update({ name, msrp, location, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
+      .update({ name, msrp, location: locationNorm, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
       .eq('id', selected);
     if (error){ alert('Update failed: ' + error.message); return; }
     // Reflect new location immediately in UI
     if (state.selectedVehicle && state.selectedVehicle.id === selected){
-      state.selectedVehicle.location = location;
+      state.selectedVehicle.location = locationNorm;
+      if (geo && isFinite(geo.lat) && isFinite(geo.lon)){
+        state.vehicleCoords = { lat: Number(geo.lat), lon: Number(geo.lon) };
+      }
+      if (geo && geo.county){ state.vehicleCounty = geo.county; }
+      if (geo && geo.city){ state.vehicleCity = geo.city; }
+      if (geo && geo.zip){ state.vehicleZip = geo.zip; }
       try { await updateVehicleGeodata(); } catch {}
       updateDistanceUI();
       updateDbMetaUI();
@@ -342,7 +371,7 @@ async function saveVehicle(){
     }
   } else {
     const { data, error } = await state.supabase.from('vehicles')
-      .insert({ name, msrp, location, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
+      .insert({ name, msrp, location: locationNorm, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
       .select('id');
     if (error){ alert('Insert failed: ' + error.message); return; }
     if (data && data[0]?.id){ selected = String(data[0].id); }
@@ -961,6 +990,11 @@ window.addEventListener('DOMContentLoaded', async () => {
               } catch {}
             }
             state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
+            // Normalize visible input to City, ST ZIP for consistency
+            try {
+              const norm = normalizeLocationFromGeo(state.dbLocationGeo);
+              if (norm) locInput.value = norm;
+            } catch {}
             document.getElementById('dbLocationCounty').textContent = county || '—';
             document.getElementById('dbLocationZip').textContent = zip || '—';
             document.getElementById('dbLocationCoords').textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
