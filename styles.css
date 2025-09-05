@@ -53,7 +53,10 @@ body{
 .status.err{color:var(--danger)}
 
 .db-row{display:grid; grid-template-columns: 140px 1fr; gap:10px; align-items:center; margin:8px 0}
-.vehicles-row{ grid-template-columns: 140px 1fr auto }
+.db-row{ overflow: hidden }
+#db-panel .db-row .row-actions{ min-width: 0 }
+#db-panel .db-row .row-actions select{ min-width: 0; width: 100%; max-width: 100% }
+.vehicles-row{ grid-template-columns: 140px minmax(0,1fr) auto }
 #db-panel .db-row.vehicles-row #supabase-status{ justify-self: end }
 .db-row .row-actions{display:flex; gap:8px; align-items:center}
 .db-row .row-actions{flex-wrap: wrap}
