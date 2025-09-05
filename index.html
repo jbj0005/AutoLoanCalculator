@@ -71,18 +71,22 @@
           </div>
 
           <div class="cell">
-            <div class="cell-label">Trade-in Value</div>
-            <div class="cell-value"><input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$18,000.00" /></div>
-          </div>
+            <div class="cell-label">Trade-in</div>
+            <div class="cell-value">
+              <div class="trade-grid">
+                <div class="t-label">Trade-in Value</div>
+                <div class="op">−</div>
+                <div class="t-label">Trade-in Payoff</div>
+                <div class="op">=</div>
+                <div class="t-label">Trade Equity</div>
 
-          <div class="cell">
-            <div class="cell-label">Trade-in Payoff</div>
-            <div class="cell-value"><input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$14,000.00" /></div>
-          </div>
-
-          <div class="cell">
-            <div class="cell-label">Trade Equity</div>
-              <div class="cell-value"><output id="tradeEquity">- -</output></div>
+                <input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$18,000.00" />
+                <div class="op">−</div>
+                <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$14,000.00" />
+                <div class="op">=</div>
+                <output id="tradeEquity">- -</output>
+              </div>
+            </div>
           </div>
 
           <div class="cell">
