@@ -774,8 +774,8 @@ function addFeeRow(name = '', amount = ''){
   const row = document.createElement('div');
   row.className = 'fee-row';
   row.innerHTML = `
-    <input class=\"fee-name\" type=\"text\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
+    <input class=\"fee-name\" type=\"text\" name=\"dealerFeeName[]\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
+    <input class=\"fee-amount\" type=\"text\" name=\"dealerFeeAmount[]\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
     <button class="remove">Remove</button>
   `;
   row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });
@@ -788,8 +788,8 @@ function addGovFeeRow(name = '', amount = ''){
   const row = document.createElement('div');
   row.className = 'fee-row';
   row.innerHTML = `
-    <input class=\"fee-name\" type=\"text\" placeholder=\"e.g., Title Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g., $85\" value=\"${amount}\" />
+    <input class=\"fee-name\" type=\"text\" name=\"govFeeName[]\" placeholder=\"e.g., Title Fee\" value=\"${name}\" />
+    <input class=\"fee-amount\" type=\"text\" name=\"govFeeAmount[]\" inputmode=\"decimal\" placeholder=\"e.g., $85\" value=\"${amount}\" />
     <button class=\"remove\">Remove</button>
   `;
   row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });
