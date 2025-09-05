@@ -147,7 +147,34 @@ function getCountyRate(countyName){
 }
 
 // --- Geocoding & Distance ---
-async function geocode(address){
+// Google Geocoding (REST)
+async function geocodeGoogle(query, { biasFL = true } = {}){
+  const base = 'https://maps.googleapis.com/maps/api/geocode/json';
+  const url = new URL(base);
+  url.searchParams.set('address', query);
+  url.searchParams.set('key', window.GMAPS_API_KEY);
+  const comps = ['country:US'];
+  if (biasFL && !/\b[A-Z]{2}\b/i.test(query) && !/Florida/i.test(query)) comps.push('administrative_area:FL');
+  url.searchParams.set('components', comps.join('|'));
+  const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
+  if (!res.ok) throw new Error('Google geocode failed');
+  const data = await res.json();
+  if (!data.results || !data.results.length) throw new Error('No results');
+  const r = data.results[0];
+  const get = (type, short=false) => {
+    const c = (r.address_components||[]).find(ac => ac.types.includes(type));
+    return c ? (short ? c.short_name : c.long_name) : null;
+  };
+  const city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
+  const county = get('administrative_area_level_2');
+  const state_code = get('administrative_area_level_1', true);
+  const zip = get('postal_code');
+  const loc = r.geometry?.location || {};
+  return { lat: Number(loc.lat), lon: Number(loc.lng), city, county, state_code, zip };
+}
+
+// Nominatim Geocoding (existing implementation)
+async function geocodeNominatim(address){
   const trimmed = (address || '').trim();
   if (!trimmed) throw new Error('Empty address');
 
@@ -242,6 +269,16 @@ async function geocode(address){
     if (m) zip = m[0];
   }
   return { lat, lon, county, zip, city, state: stateFull, state_code: stateCode };
+}
+
+// Wrapper: prefer Google if key present, else fallback
+async function geocode(address){
+  const q = (address || '').trim();
+  if (!q) throw new Error('Empty address');
+  if (window.GMAPS_API_KEY){
+    try { return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) }); } catch {}
+  }
+  return await geocodeNominatim(q);
 }
 
 function haversineMi(a, b){
@@ -884,6 +921,51 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (norm) el.value = norm;
     }
   });
+
+  // Load Google Places Autocomplete if key provided
+  async function loadGoogleMaps(){
+    if (!window.GMAPS_API_KEY || window.google?.maps?.places) return true;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly`;
+      s.async = true; s.defer = true;
+      s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    return true;
+  }
+  try {
+    await loadGoogleMaps();
+    const locInput = document.getElementById('dbLocation');
+    if (window.google?.maps?.places && locInput){
+      const ac = new google.maps.places.Autocomplete(locInput, {
+        fields: ['address_components','geometry','name'],
+        componentRestrictions: { country: 'us' }
+      });
+      ac.addListener('place_changed', () => {
+        const p = ac.getPlace();
+        if (!p || !p.address_components) return;
+        const get = (type, short=false) => {
+          const c = p.address_components.find(ac => ac.types.includes(type));
+          return c ? (short ? c.short_name : c.long_name) : null;
+        };
+        const city = get('locality') || get('postal_town') || get('sublocality');
+        const county = get('administrative_area_level_2');
+        const state_code = get('administrative_area_level_1', true);
+        const zip = get('postal_code');
+        const lat = p.geometry?.location?.lat?.() ?? null;
+        const lon = p.geometry?.location?.lng?.() ?? null;
+        state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
+        document.getElementById('dbLocationCounty').textContent = county || '—';
+        document.getElementById('dbLocationZip').textContent = zip || '—';
+        document.getElementById('dbLocationCoords').textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
+        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
+        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
+        const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
+      });
+      const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
+    }
+  } catch {}
 
   // County Rates import modal
   const ratesModal = document.getElementById('ratesModal');
