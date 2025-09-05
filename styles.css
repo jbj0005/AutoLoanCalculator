@@ -212,6 +212,15 @@ input[type="checkbox"]{width:16px; height:16px}
 }
 #vehicleModal input::placeholder{ color: var(--muted); opacity: .85 }
 
+/* Home modal inputs high-contrast for readability (match Rates modal) */
+#homeModal input[type="text"],
+#homeModal input[type="number"],
+#homeModal select{
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid var(--border);
+}
+
 /* Consistent input font sizing across panels and modal */
 .panel input, .panel select, .modal input, .modal select{
   font-size: 14px;

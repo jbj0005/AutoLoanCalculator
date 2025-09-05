@@ -13,6 +13,7 @@ const state = {
   homeCoords: null,
   homeZip: null,
   homeCity: null,
+  homeCounty: null,
   vehicleCoords: null,
   vehicleCounty: null,
   vehicleZip: null,
@@ -345,7 +346,11 @@ async function loadVehicles(){
     .order('name');
   if (error){ console.warn(error); return; }
   selectEl.innerHTML = '<option value="">Select Vehicle</option>' +
-    data.map(v => `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}" data-location="${encodeURIComponent(v.location||'')}" data-lat="${v.latitude ?? ''}" data-lon="${v.longitude ?? ''}" data-county="${encodeURIComponent(v.county || '')}">${v.name}</option>`).join('');
+    data.map(v => {
+      const locStr = v.location || '';
+      const cityStr = (locStr.split(',')[0] || '').trim();
+      return `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}" data-location="${encodeURIComponent(locStr)}" data-city="${encodeURIComponent(cityStr)}" data-lat="${v.latitude ?? ''}" data-lon="${v.longitude ?? ''}" data-county="${encodeURIComponent(v.county || '')}">${v.name}</option>`;
+    }).join('');
 }
 
 async function saveVehicle(){
@@ -450,6 +455,7 @@ function onVehicleSelected(){
   const name = decodeURIComponent(opt.dataset.name || '');
   const msrp = opt.dataset.msrp || '';
   const location = decodeURIComponent(opt.dataset.location || '');
+  const dataCity = decodeURIComponent(opt.dataset.city || '');
   state.selectedVehicle = { id: opt.value, name, msrp: parseCurrency(msrp), location };
   const summaryVeh2 = document.getElementById('summaryVehicle'); if (summaryVeh2) summaryVeh2.textContent = name || '—';
   const summaryMsrp2 = document.getElementById('summaryMsrp'); if (summaryMsrp2) summaryMsrp2.textContent = msrp ? formatCurrency(parseCurrency(msrp)) : '—';
@@ -476,6 +482,8 @@ function onVehicleSelected(){
     state.vehicleCoords = null;
   }
   state.vehicleCounty = county || null;
+  // Hydrate city from dataset or parse from location string
+  state.vehicleCity = dataCity || (location ? (location.split(',')[0] || '').trim() : null) || state.vehicleCity || null;
   updateVehicleGeodata().then(() => { updateDistanceUI(); updateDbMetaUI(); computeAll(); });
 }
 
@@ -1001,7 +1009,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     localStorage.setItem('homeCoords', JSON.stringify(state.homeCoords));
     state.homeZip = geo.zip || null;
     state.homeCity = geo.city || null;
+    state.homeCounty = geo.county || null;
     const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
+    const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = state.homeCounty || '—';
     const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords.lat, state.homeCoords.lon);
     updateDistanceUI();
     updateDbMetaUI();
@@ -1225,13 +1235,15 @@ window.addEventListener('DOMContentLoaded', async () => {
               return c ? (short ? c.short_name : c.long_name) : null;
             };
             const city = get('locality') || get('postal_town') || get('sublocality');
+            const county = get('administrative_area_level_2');
             const state_code = get('administrative_area_level_1', true);
             const zip = get('postal_code');
             const lat = p.geometry?.location?.lat?.() ?? null;
             const lon = p.geometry?.location?.lng?.() ?? null;
-            state.pendingHomeGeo = { city, state_code, zip, lat, lon };
+            state.pendingHomeGeo = { city, county, state_code, zip, lat, lon };
             // Normalize visible input
             try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
+            const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
             const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
             const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
             const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
