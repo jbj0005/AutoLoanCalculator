@@ -30,6 +30,16 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const messagesEl = () => document.getElementById('calcMessages');
 
+// Toggle placeholder styling on computed display elements
+function setReadyPlaceholder(el, isPlaceholder){
+  if (!el) return;
+  el.classList.toggle('placeholder', !!isPlaceholder);
+  if (isPlaceholder){
+    const txt = (el.textContent || '').trim();
+    if (!txt){ el.textContent = '- -'; }
+  }
+}
+
 // Debounce helper
 function debounce(fn, ms){
   let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
@@ -482,9 +492,9 @@ function computeAll(){
   const countyTax = Math.min(taxableBase, countyCap) * countyRate;
   const taxes = stateTax + countyTax;
   const showTaxes = ((priceForCalc && priceForCalc > 0) || tradeValue);
-  $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : 'Ready To Compute';
+  $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '- -';
   const tb = document.getElementById('taxesBreakdown');
-  if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : 'Ready To Compute'; }
+  if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : '- -'; }
   const trn = document.getElementById('taxesRatesNote');
   if (trn){
     const cPct = (countyRate*100).toFixed(2) + '%';
@@ -498,26 +508,26 @@ function computeAll(){
       trn.textContent = `County: Default - ${cPct}`;
     }
   }
-  // Proactive trade-in tax difference notes
+  // Tax savings with trade-in
   const noteWith = document.getElementById('tradeSavingsWith');
-  const noteWithout = document.getElementById('tradeSavingsWithout');
   if (showTaxes){
-    const baseBeforeFeesNoTrade = Math.max(0, priceForCalc - 0);
+    const baseBeforeFeesNoTrade = Math.max(0, priceForCalc);
     const taxableBaseNoTrade = Math.max(0, baseBeforeFeesNoTrade + dealerFeesTotal);
     const stateTaxNo = taxableBaseNoTrade * stateRate;
     const countyTaxNo = Math.min(taxableBaseNoTrade, countyCap) * countyRate;
     const taxesNo = stateTaxNo + countyTaxNo;
     const delta = Math.max(0, taxesNo - taxes);
-    if (noteWith){ setReadyPlaceholder(noteWith, false); noteWith.textContent = `Tax savings with trade-in: ${formatCurrency(tradeValue > 0 ? delta : 0)}`; }
-    if (noteWithout){ setReadyPlaceholder(noteWithout, false); noteWithout.textContent = (tradeValue > 0 && delta > 0) ? `Extra taxes without trade-in: ${formatCurrency(delta)}` : 'Extra taxes without trade-in: —'; }
+    if (noteWith){
+      setReadyPlaceholder(noteWith, false);
+      noteWith.textContent = `Tax Savings w/ Trade-in: ${formatCurrency(tradeValue > 0 ? delta : 0)}`;
+    }
   } else {
-    if (noteWith){ setReadyPlaceholder(noteWith, true); noteWith.textContent = 'Tax savings with trade-in: Ready To Compute'; }
-    if (noteWithout){ setReadyPlaceholder(noteWithout, true); noteWithout.textContent = 'Extra taxes without trade-in: Ready To Compute'; }
+    if (noteWith){ setReadyPlaceholder(noteWith, true); noteWith.textContent = 'Tax Savings w/ Trade-in: - -'; }
   }
   // Total Taxes & Fees (dealer + gov + taxes)
   const totalTF = dealerFeesTotal + govFeesTotal + taxes;
   const totalTFEl = document.getElementById('totalTF');
-  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : 'Ready To Compute'; }
+  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '- -'; }
 
   // Amount Financed
   // Formula used:
