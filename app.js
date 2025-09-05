@@ -599,9 +599,18 @@ function computeCalcPanelWidth(){
     ...Array.from(document.querySelectorAll('#govFeesList .fee-row input.fee-name')),
   ].filter(Boolean);
 
-  const taxesNote = document.getElementById('taxesNote');
+  const noteEls = Array.from(document.querySelectorAll('#calc-panel .cell-value .note, #calc-panel .cell-value .hint'));
+  // Toggle wrapping based on length vs base reference note
+  const baseNoteText = '6% state + county rate on first $5k';
+  const baseLen = baseNoteText.length;
+  noteEls.forEach(el => {
+    const len = (el.textContent || '').trim().length;
+    if (len > baseLen) el.classList.add('wrap-note');
+    else el.classList.remove('wrap-note');
+  });
+  const nowrapNotes = noteEls.filter(el => !el.classList.contains('wrap-note'));
   const itemsToMeasure = inputs.slice();
-  if (taxesNote) itemsToMeasure.push(taxesNote);
+  if (nowrapNotes.length) itemsToMeasure.push(...nowrapNotes);
 
   if (!itemsToMeasure.length){ panel.style.maxWidth = '380px'; return; }
 
@@ -671,7 +680,7 @@ function addFeeRow(name = '', amount = ''){
   row.className = 'fee-row';
   row.innerHTML = `
     <input class=\"fee-name\" type=\"text\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g., $999\" value=\"${amount}\" />
+    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g., enterkeyhint=\"done\" placeholder=\"e.g., $999\"\" value=\"${amount}\" />
     <button class="remove">Remove</button>
   `;
   row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });

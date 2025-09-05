@@ -77,9 +77,11 @@ body{
 }
 .value output{font-variant-numeric: tabular-nums}
 .big{font-size: 20px; font-variant-numeric: tabular-nums}
-.note{margin-top:6px; font-size:12px; color: var(--muted); opacity: .75}
+.note{margin-top:6px; font-size:12px; color: var(--muted); opacity: .75; white-space: nowrap}
 .note.warn{color: var(--warn)}
 .note.faint{opacity:.75}
+.hint{white-space: nowrap}
+.wrap-note{ white-space: normal }
 .nowrap{white-space: nowrap}
 .hint{margin-top:4px; font-size:12px; color: var(--muted)}
 
