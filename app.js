@@ -578,8 +578,15 @@ function calcPayment(pv, r, n){
 function updateDistanceUI(){
   const dEl = $('#dbDistance');
   if (!dEl) return;
-  if (!state.homeCoords || !state.vehicleCoords){ dEl.textContent = '—'; return; }
-  const d = haversineMi(state.homeCoords, state.vehicleCoords);
+  if (!state.homeCoords){ dEl.textContent = '—'; return; }
+  // If editing in modal and we have a live geocode result, use that for preview distance
+  const vehModal = document.getElementById('vehicleModal');
+  const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
+  const coords = (modalOpen && state.dbLocationGeo && isFinite(state.dbLocationGeo.lat) && isFinite(state.dbLocationGeo.lon))
+    ? { lat: Number(state.dbLocationGeo.lat), lon: Number(state.dbLocationGeo.lon) }
+    : state.vehicleCoords;
+  if (!coords){ dEl.textContent = '—'; return; }
+  const d = haversineMi(state.homeCoords, coords);
   dEl.textContent = d ? `${numberFmt.format(d)} mi` : '—';
 }
 
@@ -818,11 +825,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       $('#dbLocationCoords').textContent = '—';
       const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
       const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
+      updateDistanceUI();
       return;
     }
     try {
       const res = await geocode(loc);
-  // Use ZIP from Google geocode only
+// Use ZIP from Google geocode only
   let zipOut = res.zip || '';
   const st = res.state_code || (res.state && /florida/i.test(res.state) ? 'FL' : null);
       state.dbLocationGeo = { ...res, zip: zipOut };
@@ -834,13 +842,18 @@ window.addEventListener('DOMContentLoaded', async () => {
       const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
       // If the modal city differs from selected vehicle, keep preview only; save applies it
       // But if a vehicle is already selected, this helps confirm the new location
+      updateDistanceUI();
+      updateDbMetaUI();
     } catch {
-      state.dbLocationGeo = null;
-      $('#dbLocationCounty').textContent = '—';
-      $('#dbLocationZip').textContent = '—';
-      $('#dbLocationCoords').textContent = '—';
-      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
-      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
+      // If we have no prior geocode to show, clear; otherwise keep last good preview
+      if (!state.dbLocationGeo){
+        $('#dbLocationCounty').textContent = '—';
+        $('#dbLocationZip').textContent = '—';
+        $('#dbLocationCoords').textContent = '—';
+        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
+        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
+      }
+      updateDistanceUI();
     }
   }, 700);
   if (window.GEOCODE_ON_INPUT === true){
@@ -865,6 +878,15 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (tail) parts.push(tail);
       const norm = parts.join(', ').trim();
       if (norm) el.value = norm;
+      // ensure preview notes and distance reflect the latest result
+      state.dbLocationGeo = { ...geo, zip: zipOut };
+      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = geo.city || '—';
+      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = geo.county || '—';
+      document.getElementById('dbLocationCounty').textContent = geo.county || '—';
+      document.getElementById('dbLocationZip').textContent = zipOut || '—';
+      document.getElementById('dbLocationCoords').textContent = (isFinite(geo.lat) && isFinite(geo.lon)) ? `${Number(geo.lat).toFixed(5)}, ${Number(geo.lon).toFixed(5)}` : '—';
+      updateDistanceUI();
+      updateDbMetaUI();
     }
   });
 

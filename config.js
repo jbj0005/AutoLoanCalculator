@@ -10,4 +10,4 @@ window.ENABLE_GOOGLE_PLACES = false;
 // Allow geocoding via Google REST on blur/save; set false to fully disable network geocoding
 window.ENABLE_GOOGLE_GEOCODING = true;
 // Avoid geocoding on each keystroke; set true to re-enable live lookup as you type
-window.GEOCODE_ON_INPUT = false;
+window.GEOCODE_ON_INPUT = true;
