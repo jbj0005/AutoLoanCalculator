@@ -222,6 +222,8 @@ async function geocode(address){
   let zip = item?.address?.postcode || null;
   const county = item?.address?.county || item?.address?.state_district || null;
   const city = item?.address?.city || item?.address?.town || item?.address?.village || item?.address?.hamlet || item?.address?.municipality || item?.address?.locality || null;
+  const stateFull = item?.address?.state || null;
+  const stateCode = item?.address?.state_code || (stateFull && /florida/i.test(stateFull) ? 'FL' : null);
   const lat = parseFloat(item.lat), lon = parseFloat(item.lon);
   if (!zip){
     try {
@@ -230,12 +232,16 @@ async function geocode(address){
       rev.searchParams.set('lat', String(lat));
       rev.searchParams.set('lon', String(lon));
       rev.searchParams.set('addressdetails', '1');
-      rev.searchParams.set('zoom', '10');
+      rev.searchParams.set('zoom', '12');
       const r = await fetchJSON(rev.toString());
       zip = r?.address?.postcode || zip;
     } catch {}
   }
-  return { lat, lon, county, zip, city };
+  if (!zip && item?.display_name){
+    const m = String(item.display_name).match(/\b(\d{5})(?:-\d{4})?\b/);
+    if (m) zip = m[0];
+  }
+  return { lat, lon, county, zip, city, state: stateFull, state_code: stateCode };
 }
 
 function haversineMi(a, b){
@@ -404,6 +410,15 @@ function onVehicleSelected(){
   $('#dbVehicleName').value = name || '';
   $('#dbMsrp').value = msrp ? formatCurrency(parseCurrency(msrp)) : '';
   $('#dbLocation').value = location || '';
+  // If Final Sale Price is blank/zero, auto-fill MSRP for convenience
+  const fpEl = document.getElementById('finalPrice');
+  if (fpEl){
+    const curVal = parseCurrency(fpEl.value);
+    const msNum = parseCurrency(msrp);
+    if ((!fpEl.value.trim() || curVal <= 0) && msNum > 0){
+      fpEl.value = formatCurrency(msNum);
+    }
+  }
   // Prefer stored coords/county if available
   const lat = parseFloat(opt.dataset.lat || '');
   const lon = parseFloat(opt.dataset.lon || '');
@@ -422,6 +437,7 @@ function computeAll(){
   const name = state.selectedVehicle?.name || '';
   const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
   const finalPrice = parsePriceExpression($('#finalPrice').value, msrp);
+  const priceForCalc = (finalPrice && finalPrice > 0) ? finalPrice : msrp; // Assume MSRP when Final is blank
   const tradeValue = parseCurrency($('#tradeValue').value);
   const payoffRaw = parseCurrency($('#loanPayoff').value);
   const payoff = tradeValue > 0 ? payoffRaw : 0;
@@ -501,12 +517,12 @@ function computeAll(){
   // Florida: Tax base is selling price less trade-in allowance (if any),
   // plus taxable dealer fees. Government fees are NOT taxable.
   const hasTrade = tradeValue > 0;
-  const baseBeforeFees = hasTrade ? Math.max(0, finalPrice - tradeValue) : finalPrice;
+  const baseBeforeFees = hasTrade ? Math.max(0, priceForCalc - tradeValue) : priceForCalc;
   const taxableBase = Math.max(0, baseBeforeFees + dealerFeesTotal);
   const stateTax = taxableBase * stateRate;
   const countyTax = Math.min(taxableBase, countyCap) * countyRate;
   const taxes = stateTax + countyTax;
-  const showTaxes = (finalPrice || tradeValue);
+  const showTaxes = ((priceForCalc && priceForCalc > 0) || tradeValue);
   $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '—';
   const tb = document.getElementById('taxesBreakdown');
   if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : '—'; }
@@ -526,17 +542,17 @@ function computeAll(){
   // Total Taxes & Fees (dealer + gov + taxes)
   const totalTF = dealerFeesTotal + govFeesTotal + taxes;
   const totalTFEl = document.getElementById('totalTF');
-  if (totalTFEl){ totalTFEl.textContent = (finalPrice || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '—'; }
+  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '—'; }
 
   // Amount Financed
   // Formula used:
   // amount = finalPrice - tradeValue + payoff + (financeTF ? (govFees + dealerFees + taxes) : 0) - cashDown
   const feesTotal = govFeesTotal + dealerFeesTotal;
-  const baseAmount = (finalPrice - tradeValue + payoff) - cashDown;
+  const baseAmount = (priceForCalc - tradeValue + payoff) - cashDown;
   const amountWithTF = Math.max(0, baseAmount + (feesTotal + taxes));
   const amountWithoutTF = Math.max(0, baseAmount);
   const amountFinanced = financeTF ? amountWithTF : amountWithoutTF;
-  $('#amountFinanced').textContent = (finalPrice || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown) ? formatCurrency(amountFinanced) : '—';
+  $('#amountFinanced').textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown) ? formatCurrency(amountFinanced) : '—';
 
   // APR monthly and Payments
   const monthlyRate = apr / 100 / 12;
@@ -577,8 +593,16 @@ function updateDistanceUI(){
 function updateDbMetaUI(){
   const cityEl = $('#dbCity');
   const countyEl = $('#dbCounty');
-  if (cityEl) cityEl.textContent = state.vehicleCity || '—';
-  if (countyEl) countyEl.textContent = state.vehicleCounty || '—';
+  if (!cityEl && !countyEl) return;
+  const vehModal = document.getElementById('vehicleModal');
+  const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
+  if (modalOpen && state.dbLocationGeo){
+    if (cityEl) cityEl.textContent = state.dbLocationGeo.city || '—';
+    if (countyEl) countyEl.textContent = state.dbLocationGeo.county || '—';
+  } else {
+    if (cityEl) cityEl.textContent = state.vehicleCity || '—';
+    if (countyEl) countyEl.textContent = state.vehicleCounty || '—';
+  }
 }
 
 // --- Dynamic calculator width ---
@@ -794,13 +818,33 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Geocode DB location as you type (debounced)
   const debouncedDbLoc = debounce(async () => {
     const loc = $('#dbLocation').value.trim();
-    if (!loc) { state.dbLocationGeo = null; $('#dbLocationCounty').textContent = '—'; $('#dbLocationZip').textContent = '—'; $('#dbLocationCoords').textContent = '—'; return; }
+    if (!loc) {
+      state.dbLocationGeo = null;
+      $('#dbLocationCounty').textContent = '—';
+      $('#dbLocationZip').textContent = '—';
+      $('#dbLocationCoords').textContent = '—';
+      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
+      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
+      return;
+    }
     try {
       const res = await geocode(loc);
-      state.dbLocationGeo = res;
+      // If no ZIP from geocode, try city ZIP lookup (US only)
+      let zipOut = res.zip || '';
+      const st = res.state_code || (res.state && /florida/i.test(res.state) ? 'FL' : null);
+      if (!zipOut && res.city && st){
+        const zips = await fetchCityZips(res.city, st);
+        if (zips.length){
+          zipOut = zips.includes('33025') ? '33025' : zips.sort((a,b)=>parseInt(a)-parseInt(b))[0];
+        }
+      }
+      state.dbLocationGeo = { ...res, zip: zipOut };
       $('#dbLocationCounty').textContent = res.county || '—';
-      $('#dbLocationZip').textContent = res.zip || '—';
+      $('#dbLocationZip').textContent = zipOut || '—';
       $('#dbLocationCoords').textContent = `${res.lat.toFixed(5)}, ${res.lon.toFixed(5)}`;
+      // Also preview in the DB meta section
+      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
+      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
       // If the modal city differs from selected vehicle, keep preview only; save applies it
       // But if a vehicle is already selected, this helps confirm the new location
     } catch {
@@ -808,9 +852,38 @@ window.addEventListener('DOMContentLoaded', async () => {
       $('#dbLocationCounty').textContent = '—';
       $('#dbLocationZip').textContent = '—';
       $('#dbLocationCoords').textContent = '—';
+      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
+      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
     }
   }, 700);
   $('#dbLocation').addEventListener('input', debouncedDbLoc);
+  // On blur, normalize the location field to "City, ST ZIP" when resolvable
+  $('#dbLocation').addEventListener('blur', async () => {
+    const el = $('#dbLocation');
+    const raw = el.value.trim();
+    if (!raw) return;
+    let geo = state.dbLocationGeo;
+    if (!geo){
+      try { geo = await geocode(raw); } catch { geo = null; }
+    }
+    if (geo){
+      // Ensure ZIP present
+      let zipOut = geo.zip || '';
+      const st = geo.state_code || (geo.state && /florida/i.test(geo.state) ? 'FL' : null);
+      if (!zipOut && geo.city && st){
+        const zips = await fetchCityZips(geo.city, st);
+        if (zips.length){
+          zipOut = zips.includes('33025') ? '33025' : zips.sort((a,b)=>parseInt(a)-parseInt(b))[0];
+        }
+      }
+      const parts = [];
+      if (geo.city) parts.push(geo.city);
+      const tail = [st, zipOut].filter(Boolean).join(' ');
+      if (tail) parts.push(tail);
+      const norm = parts.join(', ').trim();
+      if (norm) el.value = norm;
+    }
+  });
 
   // County Rates import modal
   const ratesModal = document.getElementById('ratesModal');
@@ -1069,4 +1142,32 @@ window.addEventListener('DOMContentLoaded', async () => {
       computeAll();
     });
   }
+
+  // Open Tax Formula modal
+  const openFormula = document.getElementById('openTaxFormula');
+  const formulaModal = document.getElementById('formulaModal');
+  const openFormulaModal = () => {
+    if (formulaModal){
+      // Populate current rates line
+      const sRate = state.countyRates?.meta?.stateRate ?? 0.06;
+      const cRate = (typeof state.countyRateUsed === 'number')
+        ? state.countyRateUsed
+        : getCountyRate(state.vehicleCounty || '').rate;
+      const countyLabel = state.selectedVehicle
+        ? (state.vehicleCounty || 'Default')
+        : 'Default';
+      const line = document.getElementById('formulaRatesLine');
+      if (line){
+        line.textContent = `Using ${ (sRate*100).toFixed(2) }% state + ${ (cRate*100).toFixed(2) }% county (County: ${countyLabel})`;
+      }
+      formulaModal.classList.add('open');
+      formulaModal.setAttribute('aria-hidden','false');
+    }
+  };
+  const closeFormulaModal = () => { if (formulaModal){ formulaModal.classList.remove('open'); formulaModal.setAttribute('aria-hidden','true'); } };
+  if (openFormula){ openFormula.addEventListener('click', openFormulaModal); }
+  const fc = document.getElementById('formulaClose');
+  const fca = document.getElementById('formulaCancel');
+  if (fc) fc.addEventListener('click', closeFormulaModal);
+  if (fca) fca.addEventListener('click', closeFormulaModal);
 });

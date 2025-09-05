@@ -4,6 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Auto Loan Calculator</title>
+    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="apple-touch-icon" href="favicon.png" />
     <link rel="stylesheet" href="styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -116,7 +118,7 @@
               <div class="note" id="taxesNote">6% state + county rate on first $5k</div>
               <div class="note" id="taxesRatesNote">Rates: —</div>
               <div class="note">Breakdown: <span id="taxesBreakdown">—</span></div>
-              <div class="note" id="taxesFormula">Formula: stateRate × taxableBase + countyRate × min(taxableBase, $5,000); taxableBase = max(Final − Trade-in, 0) + Dealer Fees (Gov't fees excluded)</div>
+              <div class="note"><button id="openTaxFormula" class="link-btn" type="button">Tax Calculation Formula</button></div>
               <div class="hint">Do you have a Trade-in? <button id="tradeSavingsLink" class="link-btn" type="button">Click here</button></div>
               <div class="note" id="tradeSavingsNote">—</div>
             </div>
@@ -245,6 +247,28 @@
           <button id="loadRatesSample" class="btn">Load Sample</button>
           <button id="saveRates" class="btn primary">Save Rates</button>
           <button id="ratesCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Formula Modal -->
+    <div id="formulaModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="formulaModalTitle">
+        <div class="modal-header">
+          <h3 id="formulaModalTitle">Tax Calculation Formula</h3>
+          <button id="formulaClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row" style="display:block">
+            <div class="note wrap-note" id="formulaRatesLine">—</div>
+            <div class="note wrap-note">State tax = stateRate × taxableBase</div>
+            <div class="note wrap-note">County surtax = countyRate × min(taxableBase, $5,000)</div>
+            <div class="note wrap-note">Taxable base = max(Final Sale Price − Trade-in, 0) + Dealer Fees</div>
+            <div class="hint wrap-note">Government/DMV fees are not taxable. County surtax applies only to the first $5,000.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="formulaCancel" class="btn">Close</button>
         </div>
       </div>
     </div>

@@ -134,6 +134,9 @@ input[type="checkbox"]{width:16px; height:16px}
 .link-btn{ background: transparent; border: none; color: var(--accent); cursor: pointer; padding:0 2px }
 .link-btn:hover{ text-decoration: underline }
 
+/* Tooltip (hover/click) for notes */
+/* (removed tooltip hover bubble in favor of modal) */
+
 /* Make inputs in the Rates modal high-contrast for readability */
 #ratesModal input[type="text"],
 #ratesModal input[type="number"],
