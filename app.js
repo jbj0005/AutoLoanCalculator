@@ -71,6 +71,45 @@ function parsePercent(s){
   return isNaN(v) ? 0 : v;
 }
 
+// Parse price expressions for Final Sale Price, supporting formulas like:
+// - "MSRP - 7500"
+// - "82000 - 6%"
+// - "MSRP - 6%" or "82000 * 0.94"
+// Falls back to currency parsing if expression is not recognized.
+function parsePriceExpression(input, msrp){
+  if (!input) return 0;
+  const s = String(input).trim();
+  if (!s) return 0;
+  const MSRP_VAL = Number(msrp) || 0;
+
+  // Pattern: <base> (+|-) <percent>%
+  const mPct = s.match(/^\s*(msrp|[\d$,\.]+)\s*([+\-])\s*([\d.]+)\s*%\s*$/i);
+  if (mPct){
+    const baseStr = mPct[1];
+    const op = mPct[2];
+    const pct = parseFloat(mPct[3]);
+    const base = /msrp/i.test(baseStr) ? MSRP_VAL : parseCurrency(baseStr);
+    if (!isNaN(base) && !isNaN(pct)){
+      const delta = base * (pct/100);
+      return op === '+' ? (base + delta) : (base - delta);
+    }
+  }
+
+  // Replace MSRP token, strip $ and commas
+  let expr = s.replace(/msrp/gi, String(MSRP_VAL)).replace(/[$,]/g, '');
+  // Allow only safe arithmetic characters
+  if (/^[0-9+\-*/().\s]+$/.test(expr)){
+    try {
+      // eslint-disable-next-line no-new-func
+      const val = Function(`"use strict";return (${expr});`)();
+      const num = Number(val);
+      if (isFinite(num)) return num;
+    } catch {}
+  }
+  // Fallback to currency parsing
+  return parseCurrency(s);
+}
+
 // Bind currency inputs to auto-format on blur
 function attachCurrencyFormatter(input){
   input.addEventListener('blur', () => {
@@ -382,7 +421,7 @@ function onVehicleSelected(){
 function computeAll(){
   const name = state.selectedVehicle?.name || '';
   const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
-  const finalPrice = parseCurrency($('#finalPrice').value);
+  const finalPrice = parsePriceExpression($('#finalPrice').value, msrp);
   const tradeValue = parseCurrency($('#tradeValue').value);
   const payoffRaw = parseCurrency($('#loanPayoff').value);
   const payoff = tradeValue > 0 ? payoffRaw : 0;
@@ -670,11 +709,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   loadHomeAddress();
   await ensureHomeCoords();
 
-  // Inputs
-  ['finalPrice','tradeValue','loanPayoff','cashDown'].forEach(id => {
+  // Inputs (currency formatter for all except finalPrice which supports expressions)
+  ['tradeValue','loanPayoff','cashDown'].forEach(id => {
     const el = document.getElementById(id);
     attachCurrencyFormatter(el);
   });
+  // Specialized handling for Final Sale Price (supports formulas)
+  const fp = document.getElementById('finalPrice');
+  const getCurrentMsrp = () => (Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0);
+  fp.addEventListener('blur', () => {
+    const n = parsePriceExpression(fp.value, getCurrentMsrp());
+    fp.value = n ? formatCurrency(n) : '';
+    computeAll();
+  });
+  fp.addEventListener('input', () => computeAll());
+  fp.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); fp.blur(); }});
   // If no trade-in value, clear payoff dynamically
   const tradeEl = document.getElementById('tradeValue');
   const payoffEl = document.getElementById('loanPayoff');
@@ -964,4 +1013,16 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Recompute width initially and on resize
   computeCalcPanelWidth();
   window.addEventListener('resize', computeCalcPanelWidth);
+
+  // Allow mobile keyboards to submit via Return/Done
+  const calcForm = document.getElementById('calcForm');
+  if (calcForm){
+    calcForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (document.activeElement && typeof document.activeElement.blur === 'function'){
+        document.activeElement.blur();
+      }
+      computeAll();
+    });
+  }
 });
