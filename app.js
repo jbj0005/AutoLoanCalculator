@@ -796,6 +796,13 @@ function computeCalcPanelWidth(){
   const vw = Math.max(320, window.innerWidth - 32);
   const finalW = Math.min(vw, Math.max(min, desiredAll));
   panel.style.maxWidth = `${finalW}px`;
+  // Keep DB panel width in sync with calculator width (within its visual max)
+  const dbPanel = document.getElementById('db-panel');
+  if (dbPanel){
+    const dbMax = 680; // visual cap for DB card
+    const dbW = Math.min(finalW, dbMax);
+    dbPanel.style.maxWidth = `${dbW}px`;
+  }
 }
 
 // --- Modal helpers ---

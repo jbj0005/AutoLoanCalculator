@@ -47,7 +47,7 @@ body{
 #db-panel .panel-header #supabase-status{ justify-self: end }
 .panel-header h2{margin:0; font-size:16px}
 
-.status{font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted)}
+.status{font-size:12px; padding:4px 8px; border-radius:999px; border:1px solid var(--border); color:var(--muted); display:inline-flex; align-items:center; justify-content:center; text-align:center}
 .status.ok{color:var(--accent)}
 .status.warn{color:var(--warn)}
 .status.err{color:var(--danger)}
