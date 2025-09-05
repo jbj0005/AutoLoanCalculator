@@ -294,10 +294,8 @@ async function updateVehicleGeodata(){
     state.vehicleZip = res.zip || null;
     state.vehicleCity = res.city || null;
   } catch(e){
-    state.vehicleCoords = null;
-    state.vehicleCounty = null;
-    state.vehicleZip = null;
-    state.vehicleCity = null;
+    // Keep previous values on failure to avoid wiping known data
+    console.warn('Vehicle geocode failed; preserving existing geo', e);
   }
 }
 
@@ -364,7 +362,8 @@ async function saveVehicle(){
       if (geo && geo.county){ state.vehicleCounty = geo.county; }
       if (geo && geo.city){ state.vehicleCity = geo.city; }
       if (geo && geo.zip){ state.vehicleZip = geo.zip; }
-      try { await updateVehicleGeodata(); } catch {}
+      // Only re-geocode after save if we didn't have a structured geo
+      if (!geo){ try { await updateVehicleGeodata(); } catch {} }
       updateDistanceUI();
       updateDbMetaUI();
       computeAll();
