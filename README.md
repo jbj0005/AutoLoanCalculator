@@ -1,5 +1,7 @@
 # Auto Loan Calculator (GitHub Pages)
 
+Live site: https://jbj0005.github.io/AutoLoanCalculator/
+
 Mobile-friendly auto loan calculator with optional Supabase-backed vehicle list. Designed with an Excel-like, 8-column paired layout that adapts to small screens.
 
 Live-ready for GitHub Pages: static HTML/CSS/JS only.
@@ -29,6 +31,7 @@ Tip: On mobile, add to home screen for an app-like experience.
 1. Push this project to your repository (e.g. `AutoLoanCalculator`).
 2. In GitHub: Settings → Pages → Build and deployment → Source = Deploy from branch. Choose `main` and root (`/`).
 3. Wait for Pages to build. Your app will be available at `https://<you>.github.io/<repo>/`.
+   - For this repo: https://jbj0005.github.io/AutoLoanCalculator/
 
 ## Supabase Setup (Optional, for Vehicle DB)
 
@@ -131,4 +134,3 @@ If you want the exact formula you described strictly (ignoring positive equity i
 ## License / Disclaimer
 
 For personal use. No warranty. Tax and fee calculations are estimates; verify with your dealer and local tax authority.
-
