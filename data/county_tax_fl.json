@@ -1,0 +1,11 @@
+{
+  "meta": {
+    "stateRate": 0.06,
+    "countyCap": 5000
+  },
+  "counties": {
+    "Brevard": 0.015,
+    "DEFAULT": 0.01
+  }
+}
+

@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Auto Loan Calculator</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="app.js"></script>
+    <script defer src="config.js"></script>
+  </head>
+  <body>
+    <header class="app-header center">
+      <h1>Brandon's Auto Loan Calculator</h1>
+    </header>
+
+    <main class="container">
+      <section class="panel" id="db-panel">
+        <div class="panel-header">
+          <h2>Vehicle Database</h2>
+          <div id="supabase-status" class="status warn">Supabase not configured</div>
+        </div>
+        <div class="db-row">
+          <label for="vehicleSelect">Saved Vehicles</label>
+          <div class="row-actions">
+            <select id="vehicleSelect">
+              <option value="">-- none --</option>
+            </select>
+            <button id="addVehicleBtn" class="btn">Add</button>
+            <button id="updateVehicleBtn" class="btn">Update</button>
+            <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
+          </div>
+        </div>
+        <div class="db-meta">
+          <div>City: <span id="dbCity">—</span></div>
+          <div>County: <span id="dbCounty">—</span></div>
+          <div>Distance: <span id="dbDistance">—</span></div>
+        </div>
+        <div class="db-meta-actions">
+          <button id="updateHomeBtn" class="btn small">Update Home Address</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-header">
+          <h2>Calculator</h2>
+          <div id="calcMessages" class="messages"></div>
+        </div>
+        <div class="stack">
+          <div class="cell">
+            <div class="cell-label">Vehicle</div>
+            <div class="cell-value"><output id="calcVehicleName">—</output></div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">MSRP</div>
+            <div class="cell-value"><output id="calcMsrp">—</output></div>
+          </div>
+
+          
+
+          <div class="cell">
+            <div class="cell-label">Final Sale Price</div>
+            <div class="cell-value">
+              <input id="finalPrice" type="text" inputmode="decimal" placeholder="$80,000.00" />
+              <div id="savings" class="note"></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Trade-in Value</div>
+            <div class="cell-value"><input id="tradeValue" type="text" inputmode="decimal" placeholder="$18,000.00" /></div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Trade-in Payoff</div>
+            <div class="cell-value"><input id="loanPayoff" type="text" inputmode="decimal" placeholder="$14,000.00" /></div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Trade Equity</div>
+            <div class="cell-value"><output id="tradeEquity">—</output></div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Dealer Fees</div>
+            <div class="cell-value">
+              <div id="dealerFeesList" class="fees-list"></div>
+              <div class="fees-actions">
+                <button id="addFee" class="btn small">Add Fee</button>
+                <span class="spacer"></span>
+                <span>Total: <strong id="dealerFeesTotal">$0.00</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Gov't Fees</div>
+            <div class="cell-value">
+              <div id="govFeesList" class="fees-list"></div>
+              <div class="fees-actions">
+                <button id="addGovFee" class="btn small">Add Fee</button>
+                <span class="spacer"></span>
+                <span>Total: <strong id="govFeesTotal">$0.00</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Taxes (FL)</div>
+            <div class="cell-value">
+              <output id="taxes">—</output>
+              <div class="note">6% state + county rate on first $5k<br>Breakdown: <span id="taxesBreakdown">—</span></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Cash Down</div>
+            <div class="cell-value"><input id="cashDown" type="text" inputmode="decimal" placeholder="$5,000.00" /></div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Amount Financed</div>
+            <div class="cell-value amount-row">
+              <label class="checkbox"><input id="financeTF" type="checkbox" /> Finance Taxes & Fees</label>
+              <div class="big" id="amountFinanced">—</div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">APR / Term</div>
+            <div class="cell-value">
+              <div class="inline-2">
+                <input id="apr" type="text" inputmode="decimal" placeholder="APR e.g., 7.49" value="6.50" />
+                <div class="input-with-suffix">
+                  <input id="term" list="termOptions" inputmode="numeric" pattern="[0-9]*" placeholder="60" value="72" />
+                  <span class="suffix">Months</span>
+                </div>
+                <datalist id="termOptions">
+                  <option value="36"></option>
+                  <option value="42"></option>
+                  <option value="48"></option>
+                  <option value="60"></option>
+                  <option value="72"></option>
+                  <option value="84"></option>
+                </datalist>
+              </div>
+              <div class="note">Monthly rate: <span id="monthlyApr">—</span></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Monthly Payment</div>
+            <div class="cell-value">
+              <div class="big" id="monthlyPayment">—</div>
+              <div class="note faint">0% APR reference: <span id="payment0">—</span></div>
+              <div class="note">Delta vs 0%: <span id="paymentDelta">—</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      
+
+      <footer class="footer">
+        <div>Disclaimer: Estimates only. Verify taxes and fees with your dealer.</div>
+      </footer>
+    </main>
+
+    <!-- Vehicle Modal -->
+    <div id="vehicleModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="vehicleModalTitle">
+        <div class="modal-header">
+          <h3 id="vehicleModalTitle">Vehicle</h3>
+          <button id="modalClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row">
+            <label for="dbVehicleName">Name</label>
+            <input id="dbVehicleName" type="text" placeholder="e.g. 2025 Ram 1500 Limited" />
+          </div>
+          <div class="db-row">
+            <label for="dbMsrp">MSRP</label>
+            <input id="dbMsrp" type="text" inputmode="decimal" placeholder="$83,000.00" />
+          </div>
+          <div class="db-row">
+            <label for="dbLocation">Location</label>
+            <div>
+              <input id="dbLocation" type="text" placeholder="City, State or ZIP" />
+              <div class="note">County: <span id="dbLocationCounty">—</span> • <span id="dbLocationCoords">—</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="saveVehicle" class="btn primary">Save</button>
+          <button id="modalCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </body>
+  </html>
