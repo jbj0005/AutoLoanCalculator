@@ -19,7 +19,6 @@ const state = {
   vehicleZip: null,
   vehicleCity: null,
   countyRateUsed: null,
-  userCountyRate: null,
   supabase: null,
   selectedVehicle: null,
   dbLocationGeo: null,
@@ -110,22 +109,94 @@ function getCountyRate(countyName){
 
 // --- Geocoding & Distance ---
 async function geocode(address){
-  const url = new URL(NOMINATIM_URL);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('limit', '1');
-  url.searchParams.set('addressdetails', '1');
-  url.searchParams.set('q', address);
-  const res = await fetch(url.toString(), {
-    headers: { 'Accept': 'application/json' }
-  });
-  if (!res.ok) throw new Error('Geocoding failed');
-  const data = await res.json();
-  if (!data || !data.length) throw new Error('Address not found');
-  const item = data[0];
+  const trimmed = (address || '').trim();
+  if (!trimmed) throw new Error('Empty address');
+
+  const common = { format: 'json', limit: '1', addressdetails: '1' };
+  const headers = { 'Accept': 'application/json' };
+
+  // Detect ZIP (5-digit, optional -4)
+  const zipMatch = trimmed.match(/\b(\d{5})(?:-\d{4})?\b/);
+  let item = null;
+
+  async function fetchJSON(u){
+    const res = await fetch(u, { headers });
+    if (!res.ok) throw new Error('Geocoding failed');
+    return res.json();
+  }
+
+  // Try structured search by ZIP
+  if (zipMatch){
+    const zip = zipMatch[1];
+    const url = new URL(NOMINATIM_URL);
+    url.searchParams.set('format', common.format);
+    url.searchParams.set('limit', common.limit);
+    url.searchParams.set('addressdetails', common.addressdetails);
+    url.searchParams.set('countrycodes', 'us');
+    url.searchParams.set('postalcode', zip);
+    const data = await fetchJSON(url.toString());
+    if (data && data.length) item = data[0];
+  }
+
+  // If not ZIP or no result, try structured city/state (default FL if state not provided)
+  if (!item){
+    // Parse possible "City, ST" or "City, State"
+    let city = null, stateAbbr = null;
+    const parts = trimmed.split(',').map(s => s.trim()).filter(Boolean);
+    if (parts.length >= 1){
+      city = parts[0];
+      if (parts.length >= 2){
+        const st = parts[1];
+        const m = st.match(/\b([A-Z]{2})\b/i);
+        if (m) stateAbbr = m[1].toUpperCase();
+        else if (/florida/i.test(st)) stateAbbr = 'FL';
+      }
+    }
+    if (!stateAbbr) stateAbbr = 'FL'; // default bias to Florida city names
+
+    const url2 = new URL(NOMINATIM_URL);
+    url2.searchParams.set('format', common.format);
+    url2.searchParams.set('limit', common.limit);
+    url2.searchParams.set('addressdetails', common.addressdetails);
+    url2.searchParams.set('countrycodes', 'us');
+    if (city){ url2.searchParams.set('city', city); }
+    if (stateAbbr){ url2.searchParams.set('state', stateAbbr); }
+    const data2 = await fetchJSON(url2.toString());
+    if (data2 && data2.length) item = data2[0];
+  }
+
+  // Final fallback to plain q= with US bias
+  if (!item){
+    const url3 = new URL(NOMINATIM_URL);
+    url3.searchParams.set('format', common.format);
+    url3.searchParams.set('limit', common.limit);
+    url3.searchParams.set('addressdetails', common.addressdetails);
+    url3.searchParams.set('countrycodes', 'us');
+    url3.searchParams.set('q', trimmed);
+    const data3 = await fetchJSON(url3.toString());
+    if (data3 && data3.length) item = data3[0];
+  }
+
+  if (!item) throw new Error('Address not found');
+
+  // If postcode missing, try reverse lookup at moderate zoom
+  let zip = item?.address?.postcode || null;
   const county = item?.address?.county || item?.address?.state_district || null;
-  const zip = item?.address?.postcode || null;
   const city = item?.address?.city || item?.address?.town || item?.address?.village || item?.address?.hamlet || item?.address?.municipality || item?.address?.locality || null;
-  return { lat: parseFloat(item.lat), lon: parseFloat(item.lon), county, zip, city };
+  const lat = parseFloat(item.lat), lon = parseFloat(item.lon);
+  if (!zip){
+    try {
+      const rev = new URL('https://nominatim.openstreetmap.org/reverse');
+      rev.searchParams.set('format', 'json');
+      rev.searchParams.set('lat', String(lat));
+      rev.searchParams.set('lon', String(lon));
+      rev.searchParams.set('addressdetails', '1');
+      rev.searchParams.set('zoom', '10');
+      const r = await fetchJSON(rev.toString());
+      zip = r?.address?.postcode || zip;
+    } catch {}
+  }
+  return { lat, lon, county, zip, city };
 }
 
 function haversineMi(a, b){
@@ -380,25 +451,9 @@ function computeAll(){
       countyRateSource = 'default';
     }
   } else {
-    // No vehicle selected: prompt or use stored user rate (default 1%)
-    let stored = state.userCountyRate;
-    if (stored == null){
-      const ls = localStorage.getItem('userCountyRate');
-      if (ls != null){
-        const n = parseFloat(ls);
-        if (!isNaN(n)) stored = n;
-      }
-    }
-    if (stored == null){
-      const inp = prompt('Enter County Sales Tax Rate (%)', '1');
-      let num = parseFloat((inp || '1').replace(/[^0-9.\-]/g,''));
-      if (!isFinite(num) || num < 0) num = 1;
-      stored = num / 100;
-      localStorage.setItem('userCountyRate', String(stored));
-    }
-    state.userCountyRate = stored;
-    countyRate = stored;
-    countyRateSource = 'user';
+    // No vehicle selected: use DEFAULT county rate from table; no prompts
+    countyRate = getCountyRate('').rate;
+    countyRateSource = 'default';
   }
   state.countyRateUsed = countyRate;
 
@@ -426,7 +481,7 @@ function computeAll(){
         trn.textContent = `County: Default - ${cPct}`;
       }
     } else {
-      trn.textContent = `County: User Selected - ${cPct}`;
+      trn.textContent = `County: Default - ${cPct}`;
     }
   }
   // Total Taxes & Fees (dealer + gov + taxes)
@@ -681,15 +736,19 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Geocode DB location as you type (debounced)
   const debouncedDbLoc = debounce(async () => {
     const loc = $('#dbLocation').value.trim();
-    if (!loc) { state.dbLocationGeo = null; $('#dbLocationCounty').textContent = '—'; $('#dbLocationCoords').textContent = '—'; return; }
+    if (!loc) { state.dbLocationGeo = null; $('#dbLocationCounty').textContent = '—'; $('#dbLocationZip').textContent = '—'; $('#dbLocationCoords').textContent = '—'; return; }
     try {
       const res = await geocode(loc);
       state.dbLocationGeo = res;
       $('#dbLocationCounty').textContent = res.county || '—';
+      $('#dbLocationZip').textContent = res.zip || '—';
       $('#dbLocationCoords').textContent = `${res.lat.toFixed(5)}, ${res.lon.toFixed(5)}`;
+      // If the modal city differs from selected vehicle, keep preview only; save applies it
+      // But if a vehicle is already selected, this helps confirm the new location
     } catch {
       state.dbLocationGeo = null;
       $('#dbLocationCounty').textContent = '—';
+      $('#dbLocationZip').textContent = '—';
       $('#dbLocationCoords').textContent = '—';
     }
   }, 700);

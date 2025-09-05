@@ -159,6 +159,14 @@ input[type="checkbox"]{width:16px; height:16px}
   cursor: pointer;
 }
 
+/* Vehicle modal inputs match calculator card */
+#vehicleModal input, #vehicleModal select{
+  background: #0f1319;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+#vehicleModal input::placeholder{ color: var(--muted); opacity: .85 }
+
 /* Consistent input font sizing across panels and modal */
 .panel input, .panel select, .modal input, .modal select{
   font-size: 14px;
