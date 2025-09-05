@@ -58,6 +58,7 @@ body{
 .db-form-title{font-size:12px; color:var(--muted); margin:4px 0 6px}
 
 .db-meta{font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:4px; margin-top:6px}
+.db-meta-actions{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px}
 
 
 .stack{display:flex; flex-direction:column; gap:10px; align-items:stretch}
@@ -76,12 +77,14 @@ body{
 }
 .value output{font-variant-numeric: tabular-nums}
 .big{font-size: 20px; font-variant-numeric: tabular-nums}
-.note{margin-top:6px; font-size:12px; color: var(--muted)}
+.note{margin-top:6px; font-size:12px; color: var(--muted); opacity: .75}
 .note.warn{color: var(--warn)}
-.note.faint{opacity:.6}
+.note.faint{opacity:.75}
+.nowrap{white-space: nowrap}
 .hint{margin-top:4px; font-size:12px; color: var(--muted)}
 
 .amount-row{display:flex; align-items:center; gap:12px; justify-content:space-between}
+.amount-row .checkbox{white-space: nowrap}
 
 .checkbox{display:flex; align-items:center; gap:8px}
 input[type="checkbox"]{width:16px; height:16px}
@@ -120,6 +123,40 @@ input[type="checkbox"]{width:16px; height:16px}
   border: 1px solid var(--border);
   padding: 10px 12px;
   border-radius: 8px;
+}
+
+.rates-preview{ margin-top: 10px }
+.preview-table{ width:100%; border-collapse: collapse; font-size:12px }
+.preview-table th, .preview-table td{ border:1px solid var(--border); padding:6px 8px }
+.preview-table th{ color: var(--muted); text-align:left; background:#0f1319 }
+
+/* Make inputs in the Rates modal high-contrast for readability */
+#ratesModal input[type="text"],
+#ratesModal input[type="number"],
+#ratesModal input[type="file"]{
+  background: #ffffff !important;
+  color: #000000 !important;
+  border: 1px solid var(--border);
+}
+
+/* Style the file upload button where supported */
+#ratesModal input[type="file"]::file-selector-button{
+  background: #eeeeee;
+  color: #000000;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+#ratesModal input[type="file"]::-webkit-file-upload-button{
+  background: #eeeeee;
+  color: #000000;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  margin-right: 8px;
+  cursor: pointer;
 }
 
 /* Consistent input font sizing across panels and modal */

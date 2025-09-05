@@ -19,9 +19,11 @@ const state = {
   vehicleZip: null,
   vehicleCity: null,
   countyRateUsed: null,
+  userCountyRate: null,
   supabase: null,
   selectedVehicle: null,
-  dbLocationGeo: null
+  dbLocationGeo: null,
+  pendingRatesImport: null
 };
 
 // --- DOM Helpers ---
@@ -46,6 +48,7 @@ function setSupabaseStatus(text, cls = 'warn'){
 // --- Formatting Helpers ---
 const currencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
 const numberFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+const numberFmt4 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 
 function formatCurrency(n){
   if (isNaN(n) || n === null) return '$0.00';
@@ -199,13 +202,13 @@ function initSupabase(){
 
 async function loadVehicles(){
   const selectEl = $('#vehicleSelect');
-  if (!state.supabase){ selectEl.innerHTML = '<option value="">-- none --</option>'; return; }
+  if (!state.supabase){ selectEl.innerHTML = '<option value="">Select Vehicle</option>'; return; }
   const { data, error } = await state.supabase
     .from('vehicles')
     .select('id,name,msrp,location,latitude,longitude,county')
     .order('name');
   if (error){ console.warn(error); return; }
-  selectEl.innerHTML = '<option value="">-- none --</option>' +
+  selectEl.innerHTML = '<option value="">Select Vehicle</option>' +
     data.map(v => `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}" data-location="${encodeURIComponent(v.location||'')}" data-lat="${v.latitude ?? ''}" data-lon="${v.longitude ?? ''}" data-county="${encodeURIComponent(v.county || '')}">${v.name}</option>`).join('');
 }
 
@@ -262,7 +265,25 @@ async function deleteVehicle(){
 
 function onVehicleSelected(){
   const opt = $('#vehicleSelect').selectedOptions[0];
-  if (!opt || !opt.value) return;
+  if (!opt || !opt.value){
+    // Clear DB-referenced calculator cells and related state
+    state.selectedVehicle = null;
+    state.vehicleCoords = null;
+    state.vehicleCounty = null;
+    state.vehicleZip = null;
+    state.vehicleCity = null;
+    const vNameEl = document.getElementById('calcVehicleName');
+    const msrpEl = document.getElementById('calcMsrp');
+    if (vNameEl) vNameEl.textContent = '—';
+    if (msrpEl) msrpEl.textContent = '—';
+    const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
+    const countyEl = document.getElementById('dbCounty'); if (countyEl) countyEl.textContent = '—';
+    const distEl = document.getElementById('dbDistance'); if (distEl) distEl.textContent = '—';
+    updateDistanceUI();
+    updateDbMetaUI();
+    computeAll();
+    return;
+  }
   const name = decodeURIComponent(opt.dataset.name || '');
   const msrp = opt.dataset.msrp || '';
   const location = decodeURIComponent(opt.dataset.location || '');
@@ -292,7 +313,8 @@ function computeAll(){
   const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
   const finalPrice = parseCurrency($('#finalPrice').value);
   const tradeValue = parseCurrency($('#tradeValue').value);
-  const payoff = parseCurrency($('#loanPayoff').value);
+  const payoffRaw = parseCurrency($('#loanPayoff').value);
+  const payoff = tradeValue > 0 ? payoffRaw : 0;
   const cashDown = parseCurrency($('#cashDown').value);
   const apr = parsePercent($('#apr').value); // annual %
   const term = parseInt($('#term').value || '0', 10) || 0;
@@ -345,12 +367,48 @@ function computeAll(){
 
   // County + Taxes
   let countyName = state.vehicleCounty || '';
-  const { rate: countyRate } = getCountyRate(countyName);
+  let countyRateSource = 'lookup';
+  let countyRate;
+  const hasVehicle = !!state.selectedVehicle;
+  if (hasVehicle){
+    if (countyName){
+      countyRate = getCountyRate(countyName).rate;
+      countyRateSource = 'lookup';
+    } else {
+      // No county resolved; fall back to DEFAULT in table, do not prompt
+      countyRate = getCountyRate('').rate;
+      countyRateSource = 'default';
+    }
+  } else {
+    // No vehicle selected: prompt or use stored user rate (default 1%)
+    let stored = state.userCountyRate;
+    if (stored == null){
+      const ls = localStorage.getItem('userCountyRate');
+      if (ls != null){
+        const n = parseFloat(ls);
+        if (!isNaN(n)) stored = n;
+      }
+    }
+    if (stored == null){
+      const inp = prompt('Enter County Sales Tax Rate (%)', '1');
+      let num = parseFloat((inp || '1').replace(/[^0-9.\-]/g,''));
+      if (!isFinite(num) || num < 0) num = 1;
+      stored = num / 100;
+      localStorage.setItem('userCountyRate', String(stored));
+    }
+    state.userCountyRate = stored;
+    countyRate = stored;
+    countyRateSource = 'user';
+  }
   state.countyRateUsed = countyRate;
 
   const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
   const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
-  const taxableBase = Math.max(0, finalPrice - tradeValue);
+  // Florida: Tax base is selling price less trade-in allowance (if any),
+  // plus taxable dealer fees. Government fees are NOT taxable.
+  const hasTrade = tradeValue > 0;
+  const baseBeforeFees = hasTrade ? Math.max(0, finalPrice - tradeValue) : finalPrice;
+  const taxableBase = Math.max(0, baseBeforeFees + dealerFeesTotal);
   const stateTax = taxableBase * stateRate;
   const countyTax = Math.min(taxableBase, countyCap) * countyRate;
   const taxes = stateTax + countyTax;
@@ -358,19 +416,45 @@ function computeAll(){
   $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '—';
   const tb = document.getElementById('taxesBreakdown');
   if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : '—'; }
+  const trn = document.getElementById('taxesRatesNote');
+  if (trn){
+    const cPct = (countyRate*100).toFixed(2) + '%';
+    if (state.selectedVehicle){
+      if (countyName){
+        trn.textContent = `County: ${countyName} - ${cPct}`;
+      } else {
+        trn.textContent = `County: Default - ${cPct}`;
+      }
+    } else {
+      trn.textContent = `County: User Selected - ${cPct}`;
+    }
+  }
+  // Total Taxes & Fees (dealer + gov + taxes)
+  const totalTF = dealerFeesTotal + govFeesTotal + taxes;
+  const totalTFEl = document.getElementById('totalTF');
+  if (totalTFEl){ totalTFEl.textContent = (finalPrice || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '—'; }
 
   // Amount Financed
   // Formula used:
   // amount = finalPrice - tradeValue + payoff + (financeTF ? (govFees + dealerFees + taxes) : 0) - cashDown
   const feesTotal = govFeesTotal + dealerFeesTotal;
-  const amountFinanced = Math.max(0, (finalPrice - tradeValue + payoff) + (financeTF ? (feesTotal + taxes) : 0) - cashDown);
+  const baseAmount = (finalPrice - tradeValue + payoff) - cashDown;
+  const amountWithTF = Math.max(0, baseAmount + (feesTotal + taxes));
+  const amountWithoutTF = Math.max(0, baseAmount);
+  const amountFinanced = financeTF ? amountWithTF : amountWithoutTF;
   $('#amountFinanced').textContent = (finalPrice || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown) ? formatCurrency(amountFinanced) : '—';
 
   // APR monthly and Payments
   const monthlyRate = apr / 100 / 12;
-  $('#monthlyApr').textContent = apr ? formatPercent(apr/12) : '—';
+  $('#monthlyApr').textContent = apr ? `${numberFmt4.format(apr/12)}%` : '—';
   const pmt = calcPayment(amountFinanced, monthlyRate, term);
   const pmt0 = calcPayment(amountFinanced, 0, term);
+  // Savings on monthly payment if not financing taxes & fees
+  const pmtWith = calcPayment(amountWithTF, monthlyRate, term);
+  const pmtWithout = calcPayment(amountWithoutTF, monthlyRate, term);
+  const pmtSavings = Math.max(0, pmtWith - pmtWithout);
+  const pmtSavingsEl = document.getElementById('pmtSavings');
+  if (pmtSavingsEl){ pmtSavingsEl.textContent = (term && (feesTotal || taxes)) ? `${formatCurrency(pmtSavings)}/mo` : '—'; }
   $('#monthlyPayment').textContent = (amountFinanced && term) ? formatCurrency(pmt) : '—';
   $('#payment0').textContent = (amountFinanced && term) ? formatCurrency(pmt0) : '—';
   const delta = pmt - pmt0;
@@ -379,6 +463,7 @@ function computeAll(){
   // Distance
   updateDistanceUI();
   updateDbMetaUI();
+  computeCalcPanelWidth();
 }
 
 function calcPayment(pv, r, n){
@@ -400,6 +485,59 @@ function updateDbMetaUI(){
   const countyEl = $('#dbCounty');
   if (cityEl) cityEl.textContent = state.vehicleCity || '—';
   if (countyEl) countyEl.textContent = state.vehicleCounty || '—';
+}
+
+// --- Dynamic calculator width ---
+function computeCalcPanelWidth(){
+  const panel = document.getElementById('calc-panel');
+  if (!panel) return;
+  const inputs = [
+    document.getElementById('finalPrice'),
+    document.getElementById('tradeValue'),
+    document.getElementById('loanPayoff'),
+    document.getElementById('cashDown'),
+    document.getElementById('apr'),
+    document.getElementById('term'),
+    document.querySelector('#calc-panel .amount-row .checkbox'),
+    ...Array.from(document.querySelectorAll('#dealerFeesList .fee-row input.fee-amount')),
+    ...Array.from(document.querySelectorAll('#govFeesList .fee-row input.fee-amount')),
+    ...Array.from(document.querySelectorAll('#dealerFeesList .fee-row input.fee-name')),
+    ...Array.from(document.querySelectorAll('#govFeesList .fee-row input.fee-name')),
+  ].filter(Boolean);
+
+  const taxesNote = document.getElementById('taxesNote');
+  const itemsToMeasure = inputs.slice();
+  if (taxesNote) itemsToMeasure.push(taxesNote);
+
+  if (!itemsToMeasure.length){ panel.style.maxWidth = '380px'; return; }
+
+  const measurer = document.createElement('span');
+  measurer.style.position = 'absolute';
+  measurer.style.visibility = 'hidden';
+  measurer.style.whiteSpace = 'pre';
+  document.body.appendChild(measurer);
+
+  let maxText = 0;
+  for (const el of itemsToMeasure){
+    const cs = window.getComputedStyle(el);
+    measurer.style.fontFamily = cs.fontFamily;
+    measurer.style.fontSize = cs.fontSize;
+    measurer.style.fontWeight = cs.fontWeight;
+    measurer.style.letterSpacing = cs.letterSpacing;
+    const text = ('value' in el) ? (el.value || el.placeholder || '') : el.textContent || '';
+    measurer.textContent = text;
+    const w = measurer.getBoundingClientRect().width;
+    if (w > maxText) maxText = w;
+  }
+  measurer.remove();
+
+  // Add padding/borders/suffix allowance (~120px), clamp to viewport
+  const extra = 140; // cell + input paddings and term suffix
+  const desired = Math.ceil(maxText + extra);
+  const min = 380;
+  const vw = Math.max(320, window.innerWidth - 32);
+  const finalW = Math.min(vw, Math.max(min, desired));
+  panel.style.maxWidth = `${finalW}px`;
 }
 
 // --- Modal helpers ---
@@ -482,6 +620,14 @@ window.addEventListener('DOMContentLoaded', async () => {
     const el = document.getElementById(id);
     attachCurrencyFormatter(el);
   });
+  // If no trade-in value, clear payoff dynamically
+  const tradeEl = document.getElementById('tradeValue');
+  const payoffEl = document.getElementById('loanPayoff');
+  tradeEl.addEventListener('input', () => {
+    if (parseCurrency(tradeEl.value) <= 0){
+      if (payoffEl.value){ payoffEl.value = ''; }
+    }
+  });
 
   $('#apr').addEventListener('input', computeAll);
   $('#apr').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
@@ -549,9 +695,214 @@ window.addEventListener('DOMContentLoaded', async () => {
   }, 700);
   $('#dbLocation').addEventListener('input', debouncedDbLoc);
 
+  // County Rates import modal
+  const ratesModal = document.getElementById('ratesModal');
+  function openRatesModal(){
+    ratesModal.classList.add('open'); ratesModal.setAttribute('aria-hidden','false');
+    // Prefill meta inputs from current state
+    const sRate = state.countyRates?.meta?.stateRate ?? 0.06;
+    const cCap = state.countyRates?.meta?.countyCap ?? 5000;
+    document.getElementById('stateRateInput').value = String(sRate);
+    document.getElementById('countyCapInput').value = String(cCap);
+    updateRatesPreview(state.countyRates);
+  }
+  function closeRatesModal(){ ratesModal.classList.remove('open'); ratesModal.setAttribute('aria-hidden','true'); }
+  document.getElementById('importRatesBtn').addEventListener('click', openRatesModal);
+  document.getElementById('ratesClose').addEventListener('click', closeRatesModal);
+  document.getElementById('ratesCancel').addEventListener('click', closeRatesModal);
+  document.getElementById('loadRatesSample').addEventListener('click', () => {
+    const sampleTsv = 'County\tTotal Surtax Rate\nBrevard\t1.5%\nOrange\t0.5%\n';
+    document.getElementById('ratesInput').value = sampleTsv;
+    try {
+      const parsed = parseRatesText(sampleTsv);
+      state.pendingRatesImport = parsed;
+      updateRatesPreview(parsed);
+    } catch {}
+  });
+  async function parseExcelFile(file){
+    if (typeof XLSX === 'undefined') throw new Error('XLSX library not loaded');
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: 'array' });
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+    if (!rows.length) throw new Error('No rows found in sheet');
+    // Flexible header detection
+    const hdrs = Object.keys(rows[0]);
+    const { countyKey, rateKey } = detectHeaderKeys(hdrs);
+    if (!countyKey || !rateKey) throw new Error('Could not detect headers. Expected columns like "County" and "Total Surtax Rate".');
+    const counties = {};
+    for (const r of rows){
+      const rawCounty = String(r[countyKey] ?? '').replace(/county$/i,'').trim();
+      if (!rawCounty) continue;
+      const rateVal = r[rateKey];
+      const num = parseRateValue(rateVal);
+      if (!isFinite(num)) continue;
+      counties[rawCounty] = num;
+    }
+    if (!Object.keys(counties).length) throw new Error('No county rows parsed');
+    return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
+  }
+  document.getElementById('ratesFile').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    try {
+      let parsed;
+      const name = file.name.toLowerCase();
+      if (name.endsWith('.xlsx') || name.endsWith('.xls')){
+        parsed = await parseExcelFile(file);
+      } else {
+        const txt = await file.text();
+        parsed = parseRatesText(txt);
+      }
+      state.pendingRatesImport = parsed;
+      // Show preview JSON
+      document.getElementById('ratesInput').value = JSON.stringify(parsed, null, 2);
+      updateRatesPreview(parsed);
+    } catch(err){
+      alert('Failed to parse file: ' + err.message);
+    }
+  });
+  function normalizeHeader(h){
+    return String(h || '').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  }
+  function detectHeaderKeys(headers){
+    const countyAliases = [
+      'county', 'county name', 'buyer county', 'destination county', 'county of sale', 'county code', 'countyname', 'jurisdiction'
+    ];
+    const rateAliases = [
+      'total surtax rate', 'total surtax', 'surtax rate', 'discretionary sales surtax', 'discretionary surtax', 'local option surtax', 'local surtax', 'local rate', 'rate', 'total local rate'
+    ];
+    const norms = headers.map(h => ({ raw: h, norm: normalizeHeader(h) }));
+    const countyKey = norms.find(h => countyAliases.some(a => h.norm.includes(a)))?.raw;
+    const rateKey = norms.find(h => rateAliases.some(a => h.norm.includes(a)))?.raw;
+    return { countyKey, rateKey };
+  }
+  function parseRateValue(v){
+    if (v == null) return NaN;
+    if (typeof v === 'number'){
+      const n = v;
+      if (n <= 0.25) return n; // decimal fraction (<=25%)
+      if (n <= 25) return n / 100; // assume percent
+      return NaN;
+    }
+    let s = String(v).trim();
+    if (!s) return NaN;
+    const hasPct = /%/.test(s);
+    s = s.replace(/[^0-9.\-]/g,'');
+    let n = parseFloat(s);
+    if (!isFinite(n)) return NaN;
+    if (hasPct) return n / 100;
+    if (n <= 0.25) return n;
+    if (n <= 25) return n / 100;
+    return NaN;
+  }
+  function parseRatesText(txt){
+    // Try JSON first
+    try {
+      const obj = JSON.parse(txt);
+      if (obj && typeof obj === 'object' && obj.counties) return obj;
+    } catch {}
+    // Use SheetJS to robustly parse CSV/TSV if available
+    if (typeof XLSX !== 'undefined'){
+      try {
+        const wb = XLSX.read(txt, { type: 'string' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        if (rows.length){
+          const hdrs = Object.keys(rows[0]);
+          const { countyKey, rateKey } = detectHeaderKeys(hdrs);
+          if (!countyKey || !rateKey) throw new Error('Could not detect County/Rate columns');
+          const counties = {};
+          for (const r of rows){
+            const c = String(r[countyKey] ?? '').replace(/county$/i,'').trim();
+            if (!c) continue;
+            const n = parseRateValue(r[rateKey]);
+            if (!isFinite(n)) continue;
+            counties[c] = n;
+          }
+          if (!Object.keys(counties).length) throw new Error('No county rows parsed');
+          return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
+        }
+      } catch {}
+    }
+    // Fallback naive TSV/CSV parser
+    const delim = (txt.match(/\t/g)?.length || 0) >= (txt.match(/,/g)?.length || 0) ? '\t' : ',';
+    const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (!lines.length) throw new Error('No data to import');
+    const header = lines.shift();
+    const headers = header.split(new RegExp(delim)).map(h => h.trim());
+    const { countyKey, rateKey } = detectHeaderKeys(headers);
+    const cIdx = headers.findIndex(h => h === countyKey);
+    const rIdx = headers.findIndex(h => h === rateKey);
+    if (cIdx === -1 || rIdx === -1) throw new Error('Could not find County/Rate columns');
+    const counties = {};
+    for (const line of lines){
+      const cols = line.split(new RegExp(delim)).map(c => c.trim());
+      const c = (cols[cIdx] || '').replace(/county$/i,'').trim();
+      if (!c) continue;
+      const n = parseRateValue(cols[rIdx]);
+      if (!isFinite(n)) continue;
+      counties[c] = n;
+    }
+    if (!Object.keys(counties).length) throw new Error('No county rows parsed');
+    return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
+  }
+
+  document.getElementById('saveRates').addEventListener('click', () => {
+    try {
+      const txt = document.getElementById('ratesInput').value.trim();
+      let parsed = state.pendingRatesImport;
+      if (!parsed){
+        if (!txt) return closeRatesModal();
+        parsed = parseRatesText(txt);
+      }
+      // Override meta from inputs
+      const sRateIn = parseFloat(document.getElementById('stateRateInput').value);
+      const cCapIn = parseFloat(document.getElementById('countyCapInput').value);
+      parsed.meta = {
+        stateRate: isFinite(sRateIn) ? sRateIn : (state.countyRates?.meta?.stateRate ?? 0.06),
+        countyCap: isFinite(cCapIn) ? cCapIn : (state.countyRates?.meta?.countyCap ?? 5000),
+      };
+      // Preserve DEFAULT if user didn't include one
+      if (!parsed.counties.DEFAULT && state.countyRates?.counties?.DEFAULT){
+        parsed.counties.DEFAULT = state.countyRates.counties.DEFAULT;
+      }
+      state.countyRates = parsed;
+      localStorage.setItem('countyRates', JSON.stringify(parsed));
+      computeAll();
+      closeRatesModal();
+      state.pendingRatesImport = null;
+    } catch(err){
+      alert('Failed to import rates: ' + err.message);
+    }
+  });
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c]));
+  }
+  function updateRatesPreview(parsed){
+    const el = document.getElementById('ratesPreview');
+    if (!el) return;
+    if (!parsed || !parsed.counties){ el.innerHTML = ''; return; }
+    const entries = Object.entries(parsed.counties);
+    const limit = 15;
+    let html = '<table class="preview-table"><thead><tr><th>County</th><th>Rate</th></tr></thead><tbody>';
+    entries.slice(0, limit).forEach(([name, rate]) => {
+      const pct = (parseFloat(rate) * 100);
+      const pctStr = isFinite(pct) ? pct.toFixed(2) + '%' : '';
+      html += `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(pctStr)}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    html += `<div class="hint">${entries.length > limit ? `Showing ${limit} of ${entries.length} rows` : `Total rows: ${entries.length}`}</div>`;
+    el.innerHTML = html;
+  }
+
   // Initial state
   // Start with one fee row to guide usage
   addFeeRow();
   addGovFeeRow();
   computeAll();
+  // Recompute width initially and on resize
+  computeCalcPanelWidth();
+  window.addEventListener('resize', computeCalcPanelWidth);
 });

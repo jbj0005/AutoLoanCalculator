@@ -1,11 +1,12 @@
 <!doctype html>
 <html lang="en">
-  <head>
+    <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Auto Loan Calculator</title>
     <link rel="stylesheet" href="styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script defer src="app.js"></script>
     <script defer src="config.js"></script>
   </head>
@@ -24,7 +25,7 @@
           <label for="vehicleSelect">Saved Vehicles</label>
           <div class="row-actions">
             <select id="vehicleSelect">
-              <option value="">-- none --</option>
+              <option value="">Select Vehicle</option>
             </select>
             <button id="addVehicleBtn" class="btn">Add</button>
             <button id="updateVehicleBtn" class="btn">Update</button>
@@ -38,10 +39,11 @@
         </div>
         <div class="db-meta-actions">
           <button id="updateHomeBtn" class="btn small">Update Home Address</button>
+          <button id="importRatesBtn" class="btn small">Import County Rates</button>
         </div>
       </section>
 
-      <section class="panel">
+      <section class="panel" id="calc-panel">
         <div class="panel-header">
           <h2>Calculator</h2>
           <div id="calcMessages" class="messages"></div>
@@ -110,7 +112,17 @@
             <div class="cell-label">Taxes (FL)</div>
             <div class="cell-value">
               <output id="taxes">—</output>
-              <div class="note">6% state + county rate on first $5k<br>Breakdown: <span id="taxesBreakdown">—</span></div>
+              <div class="note" id="taxesNote">6% state + county rate on first $5k</div>
+              <div class="note" id="taxesRatesNote">Rates: —</div>
+              <div class="note">Breakdown: <span id="taxesBreakdown">—</span></div>
+              <div class="note" id="taxesFormula">Formula: stateRate × taxableBase + countyRate × min(taxableBase, $5,000); taxableBase = max(Final − Trade-in, 0) + Dealer Fees (Gov't fees excluded)</div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Total Taxes &amp; Fees</div>
+            <div class="cell-value">
+              <output id="totalTF">—</output>
             </div>
           </div>
 
@@ -121,9 +133,12 @@
 
           <div class="cell">
             <div class="cell-label">Amount Financed</div>
-            <div class="cell-value amount-row">
-              <label class="checkbox"><input id="financeTF" type="checkbox" /> Finance Taxes & Fees</label>
-              <div class="big" id="amountFinanced">—</div>
+            <div class="cell-value">
+              <div class="amount-row">
+                <label class="checkbox"><input id="financeTF" type="checkbox" /> Finance Taxes &amp; Fees</label>
+                <div class="big" id="amountFinanced">—</div>
+              </div>
+              <div class="note faint">Savings if not financing T&amp;F: <span id="pmtSavings">—</span></div>
             </div>
           </div>
 
@@ -162,9 +177,7 @@
 
       
 
-      <footer class="footer">
-        <div>Disclaimer: Estimates only. Verify taxes and fees with your dealer.</div>
-      </footer>
+      
     </main>
 
     <!-- Vehicle Modal -->
@@ -194,6 +207,41 @@
         <div class="modal-footer">
           <button id="saveVehicle" class="btn primary">Save</button>
           <button id="modalCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- County Rates Modal -->
+    <div id="ratesModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ratesModalTitle">
+        <div class="modal-header">
+          <h3 id="ratesModalTitle">Import County Rates</h3>
+          <button id="ratesClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row">
+            <label for="stateRateInput">State Rate</label>
+            <input id="stateRateInput" type="text" inputmode="decimal" placeholder="0.06" />
+          </div>
+          <div class="db-row">
+            <label for="countyCapInput">County Cap ($)</label>
+            <input id="countyCapInput" type="text" inputmode="numeric" placeholder="5000" />
+          </div>
+          <div class="db-row">
+            <label for="ratesFile">Upload File</label>
+            <input id="ratesFile" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" />
+          </div>
+          <div class="hint">Paste either JSON or copy-paste from Excel/CSV/TSV (must include County and Rate columns). Headers like "County", "Rate", or "Surtax" are detected automatically.</div>
+          <textarea id="ratesInput" rows="12" style="width:100%; background:#0f1319; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px" placeholder='County	Rate%\nBrevard	1.5%\nOrange	0.5%'></textarea>
+          <div class="rates-preview">
+            <div class="hint">Preview (first 15 rows)</div>
+            <div id="ratesPreview"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="loadRatesSample" class="btn">Load Sample</button>
+          <button id="saveRates" class="btn primary">Save Rates</button>
+          <button id="ratesCancel" class="btn">Cancel</button>
         </div>
       </div>
     </div>
