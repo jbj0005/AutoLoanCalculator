@@ -742,14 +742,59 @@ function computeCalcPanelWidth(){
     const w = measurer.getBoundingClientRect().width;
     if (w > maxText) maxText = w;
   }
+  // Also measure combined width needed for the Trade-in row (value − payoff = equity)
+  const t1 = document.getElementById('tradeValue');
+  const t2 = document.getElementById('loanPayoff');
+  const t3 = document.getElementById('tradeEquity');
+  let tradeSum = 0;
+  if (t1 && t2 && t3){
+    const measureEl = (el) => {
+      const cs = window.getComputedStyle(el);
+      measurer.style.fontFamily = cs.fontFamily;
+      measurer.style.fontSize = cs.fontSize;
+      measurer.style.fontWeight = cs.fontWeight;
+      measurer.style.letterSpacing = cs.letterSpacing;
+      const txt = ('value' in el) ? (el.value || el.placeholder || '') : (el.textContent || '');
+      measurer.textContent = txt;
+      return measurer.getBoundingClientRect().width;
+    };
+    const w1 = measureEl(t1);
+    const w2 = measureEl(t2);
+    const w3 = measureEl(t3);
+    // Operators and column gaps
+    const anyOp = document.querySelector('#calc-panel .trade-grid .op');
+    let opW = 12;
+    if (anyOp){
+      const cs = window.getComputedStyle(anyOp);
+      measurer.style.fontFamily = cs.fontFamily;
+      measurer.style.fontSize = cs.fontSize;
+      measurer.style.fontWeight = cs.fontWeight;
+      measurer.style.letterSpacing = cs.letterSpacing;
+      measurer.textContent = anyOp.textContent || '−';
+      opW = measurer.getBoundingClientRect().width;
+    }
+    const grid = document.querySelector('#calc-panel .trade-grid');
+    let gap = 8;
+    if (grid){
+      const cs = window.getComputedStyle(grid);
+      const g = parseFloat(cs.columnGap);
+      if (!Number.isNaN(g)) gap = g;
+    }
+    // Approximate padding/border around inputs/outputs
+    const padInput = 24; // ~12px left/right padding
+    const padOutput = 0; // outputs already measured as text only
+    tradeSum = (w1 + padInput) + opW + (w2 + padInput) + opW + (w3 + padOutput) + (gap * 4);
+  }
   measurer.remove();
 
   // Add padding/borders/suffix allowance (~120px), clamp to viewport
   const extra = 140; // cell + input paddings and term suffix
   const desired = Math.ceil(maxText + extra);
+  const desiredTrade = tradeSum ? Math.ceil(tradeSum + 40) : 0; // add small buffer
+  const desiredAll = Math.max(desired, desiredTrade);
   const min = 380;
   const vw = Math.max(320, window.innerWidth - 32);
-  const finalW = Math.min(vw, Math.max(min, desired));
+  const finalW = Math.min(vw, Math.max(min, desiredAll));
   panel.style.maxWidth = `${finalW}px`;
 }
 
