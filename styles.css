@@ -131,6 +131,9 @@ input[type="checkbox"]{width:16px; height:16px}
 .preview-table th, .preview-table td{ border:1px solid var(--border); padding:6px 8px }
 .preview-table th{ color: var(--muted); text-align:left; background:#0f1319 }
 
+.link-btn{ background: transparent; border: none; color: var(--accent); cursor: pointer; padding:0 2px }
+.link-btn:hover{ text-decoration: underline }
+
 /* Make inputs in the Rates modal high-contrast for readability */
 #ratesModal input[type="text"],
 #ratesModal input[type="number"],

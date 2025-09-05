@@ -836,6 +836,41 @@ window.addEventListener('DOMContentLoaded', async () => {
       updateRatesPreview(parsed);
     } catch {}
   });
+
+  // Trade-in savings note (in Taxes cell)
+  function currentCountyRateForCalc(){
+    // Prefer last-used county rate from computeAll, fallback to lookup
+    if (typeof state.countyRateUsed === 'number') return state.countyRateUsed;
+    const countyName = state.vehicleCounty || '';
+    return getCountyRate(countyName).rate;
+  }
+  function computeTaxesForTrade(tradeVal){
+    const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
+    const finalPrice = parsePriceExpression(document.getElementById('finalPrice').value, msrp);
+    const dealerFeesTotal = $$('#dealerFeesList .fee-row input.fee-amount')
+      .map(i => parseCurrency(i.value)).reduce((a,b)=>a+b,0);
+    const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
+    const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
+    const countyRate = currentCountyRateForCalc();
+    const baseBeforeFees = Math.max(0, finalPrice - Math.max(0, tradeVal||0));
+    const taxableBase = Math.max(0, baseBeforeFees + dealerFeesTotal);
+    const stateTax = taxableBase * stateRate;
+    const countyTax = Math.min(taxableBase, countyCap) * countyRate;
+    return stateTax + countyTax;
+  }
+  function showTradeSavingsPrompt(){
+    const input = prompt('Enter example Trade-in Value (e.g. $8,000)', '8000');
+    if (!input) return;
+    const trade = parseCurrency(input);
+    if (!(trade > 0)) return;
+    const taxesNoTrade = computeTaxesForTrade(0);
+    const taxesWithTrade = computeTaxesForTrade(trade);
+    const savings = Math.max(0, taxesNoTrade - taxesWithTrade);
+    const el = document.getElementById('tradeSavingsNote');
+    if (el){ el.textContent = `Estimated tax savings with a trade-in: ${formatCurrency(savings)}`; }
+  }
+  const tradeLink = document.getElementById('tradeSavingsLink');
+  if (tradeLink){ tradeLink.addEventListener('click', showTradeSavingsPrompt); }
   async function parseExcelFile(file){
     if (typeof XLSX === 'undefined') throw new Error('XLSX library not loaded');
     const buf = await file.arrayBuffer();
