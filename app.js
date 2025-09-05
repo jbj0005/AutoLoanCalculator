@@ -199,7 +199,7 @@ function parseLooseLocation(q){
 async function geocode(address){
   const q = (address || '').trim();
   if (!q) throw new Error('Empty address');
-  if (!window.GMAPS_API_KEY){
+  if (!window.GMAPS_API_KEY || window.ENABLE_GOOGLE_GEOCODING === false){
     return parseLooseLocation(q);
   }
   return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) });
@@ -843,7 +843,9 @@ window.addEventListener('DOMContentLoaded', async () => {
       const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
     }
   }, 700);
-  $('#dbLocation').addEventListener('input', debouncedDbLoc);
+  if (window.GEOCODE_ON_INPUT === true){
+    $('#dbLocation').addEventListener('input', debouncedDbLoc);
+  }
   // On blur, normalize the location field to "City, ST ZIP" when resolvable
   $('#dbLocation').addEventListener('blur', async () => {
     const el = $('#dbLocation');
@@ -879,39 +881,45 @@ window.addEventListener('DOMContentLoaded', async () => {
     return true;
   }
   try {
-    await loadGoogleMaps();
-    const locInput = document.getElementById('dbLocation');
-    if (window.google?.maps?.places && locInput){
-      const ac = new google.maps.places.Autocomplete(locInput, {
-        fields: ['address_components','geometry','name'],
-        componentRestrictions: { country: 'us' }
-      });
-      ac.addListener('place_changed', () => {
-        const p = ac.getPlace();
-        if (!p || !p.address_components) return;
-        const get = (type, short=false) => {
-          const c = p.address_components.find(ac => ac.types.includes(type));
-          return c ? (short ? c.short_name : c.long_name) : null;
-        };
-        const city = get('locality') || get('postal_town') || get('sublocality');
-        const county = get('administrative_area_level_2');
-        const state_code = get('administrative_area_level_1', true);
-        const zip = get('postal_code');
-        const lat = p.geometry?.location?.lat?.() ?? null;
-        const lon = p.geometry?.location?.lng?.() ?? null;
-        state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
-        document.getElementById('dbLocationCounty').textContent = county || '—';
-        document.getElementById('dbLocationZip').textContent = zip || '—';
-        document.getElementById('dbLocationCoords').textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
-        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
-        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
-        const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
-      });
-      const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
-    }
-    if (!window.google?.maps?.places){
+    if (window.ENABLE_GOOGLE_PLACES === true){
+      await loadGoogleMaps();
+      const locInput = document.getElementById('dbLocation');
+      if (window.google?.maps?.places && locInput){
+        try {
+          const ac = new google.maps.places.Autocomplete(locInput, {
+            fields: ['address_components','geometry','name'],
+            componentRestrictions: { country: 'us' }
+          });
+          ac.addListener('place_changed', () => {
+            const p = ac.getPlace();
+            if (!p || !p.address_components) return;
+            const get = (type, short=false) => {
+              const c = p.address_components.find(ac => ac.types.includes(type));
+              return c ? (short ? c.short_name : c.long_name) : null;
+            };
+            const city = get('locality') || get('postal_town') || get('sublocality');
+            const county = get('administrative_area_level_2');
+            const state_code = get('administrative_area_level_1', true);
+            const zip = get('postal_code');
+            const lat = p.geometry?.location?.lat?.() ?? null;
+            const lon = p.geometry?.location?.lng?.() ?? null;
+            state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
+            document.getElementById('dbLocationCounty').textContent = county || '—';
+            document.getElementById('dbLocationZip').textContent = zip || '—';
+            document.getElementById('dbLocationCoords').textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
+            const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
+            const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
+            const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
+          });
+          const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
+        } catch (e) {
+          const brand = document.getElementById('geoBrand');
+          if (brand){ brand.style.display = 'block'; brand.textContent = 'Autocomplete disabled (provider error)'; }
+        }
+      }
+    } else {
       const brand = document.getElementById('geoBrand');
-      if (brand){ brand.style.display = 'block'; brand.textContent = 'Geocoding unavailable (add Google API key in config.js)'; }
+      if (brand){ brand.style.display = 'block'; brand.textContent = 'Geocoding input: manual (Autocomplete off)'; }
     }
   } catch {}
 
