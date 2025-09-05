@@ -5,7 +5,6 @@
 // --- Configuration / Defaults ---
 const HOME_ADDRESS_DEFAULT = ""; // no personal default; user can set ZIP or address
 const COUNTY_DATA_URL = "data/county_tax_fl.json";
-const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"; // Geocoding (light use only)
 
 // --- Global State ---
 const state = {
@@ -173,112 +172,27 @@ async function geocodeGoogle(query, { biasFL = true } = {}){
   return { lat: Number(loc.lat), lon: Number(loc.lng), city, county, state_code, zip };
 }
 
-// Nominatim Geocoding (existing implementation)
-async function geocodeNominatim(address){
-  const trimmed = (address || '').trim();
-  if (!trimmed) throw new Error('Empty address');
+// (Removed Nominatim implementation — using Google only)
 
-  const common = { format: 'json', limit: '1', addressdetails: '1' };
-  const headers = { 'Accept': 'application/json' };
-
-  // Detect ZIP (5-digit, optional -4)
-  const zipMatch = trimmed.match(/\b(\d{5})(?:-\d{4})?\b/);
-  let item = null;
-
-  async function fetchJSON(u){
-    const res = await fetch(u, { headers });
-    if (!res.ok) throw new Error('Geocoding failed');
-    return res.json();
-  }
-
-  // Try structured search by ZIP
-  if (zipMatch){
-    const zip = zipMatch[1];
-    const url = new URL(NOMINATIM_URL);
-    url.searchParams.set('format', common.format);
-    url.searchParams.set('limit', common.limit);
-    url.searchParams.set('addressdetails', common.addressdetails);
-    url.searchParams.set('countrycodes', 'us');
-    url.searchParams.set('postalcode', zip);
-    const data = await fetchJSON(url.toString());
-    if (data && data.length) item = data[0];
-  }
-
-  // If not ZIP or no result, try structured city/state (default FL if state not provided)
-  if (!item){
-    // Parse possible "City, ST" or "City, State"
-    let city = null, stateAbbr = null;
-    const parts = trimmed.split(',').map(s => s.trim()).filter(Boolean);
-    if (parts.length >= 1){
-      city = parts[0];
-      if (parts.length >= 2){
-        const st = parts[1];
-        const m = st.match(/\b([A-Z]{2})\b/i);
-        if (m) stateAbbr = m[1].toUpperCase();
-        else if (/florida/i.test(st)) stateAbbr = 'FL';
-      }
-    }
-    if (!stateAbbr) stateAbbr = 'FL'; // default bias to Florida city names
-
-    const url2 = new URL(NOMINATIM_URL);
-    url2.searchParams.set('format', common.format);
-    url2.searchParams.set('limit', common.limit);
-    url2.searchParams.set('addressdetails', common.addressdetails);
-    url2.searchParams.set('countrycodes', 'us');
-    if (city){ url2.searchParams.set('city', city); }
-    if (stateAbbr){ url2.searchParams.set('state', stateAbbr); }
-    const data2 = await fetchJSON(url2.toString());
-    if (data2 && data2.length) item = data2[0];
-  }
-
-  // Final fallback to plain q= with US bias
-  if (!item){
-    const url3 = new URL(NOMINATIM_URL);
-    url3.searchParams.set('format', common.format);
-    url3.searchParams.set('limit', common.limit);
-    url3.searchParams.set('addressdetails', common.addressdetails);
-    url3.searchParams.set('countrycodes', 'us');
-    url3.searchParams.set('q', trimmed);
-    const data3 = await fetchJSON(url3.toString());
-    if (data3 && data3.length) item = data3[0];
-  }
-
-  if (!item) throw new Error('Address not found');
-
-  // If postcode missing, try reverse lookup at moderate zoom
-  let zip = item?.address?.postcode || null;
-  const county = item?.address?.county || item?.address?.state_district || null;
-  const city = item?.address?.city || item?.address?.town || item?.address?.village || item?.address?.hamlet || item?.address?.municipality || item?.address?.locality || null;
-  const stateFull = item?.address?.state || null;
-  const stateCode = item?.address?.state_code || (stateFull && /florida/i.test(stateFull) ? 'FL' : null);
-  const lat = parseFloat(item.lat), lon = parseFloat(item.lon);
-  if (!zip){
-    try {
-      const rev = new URL('https://nominatim.openstreetmap.org/reverse');
-      rev.searchParams.set('format', 'json');
-      rev.searchParams.set('lat', String(lat));
-      rev.searchParams.set('lon', String(lon));
-      rev.searchParams.set('addressdetails', '1');
-      rev.searchParams.set('zoom', '12');
-      const r = await fetchJSON(rev.toString());
-      zip = r?.address?.postcode || zip;
-    } catch {}
-  }
-  if (!zip && item?.display_name){
-    const m = String(item.display_name).match(/\b(\d{5})(?:-\d{4})?\b/);
-    if (m) zip = m[0];
-  }
-  return { lat, lon, county, zip, city, state: stateFull, state_code: stateCode };
+function parseLooseLocation(q){
+  const out = { city: null, state_code: null, zip: null, lat: null, lon: null, county: null };
+  const zipm = q.match(/\b(\d{5})(?:-\d{4})?\b/);
+  if (zipm) out.zip = zipm[1];
+  const parts = q.split(',').map(s=>s.trim()).filter(Boolean);
+  if (parts.length){ out.city = parts[0]; }
+  const st = parts.length>1 ? parts[1] : '';
+  const st2 = st.match(/\b([A-Z]{2})\b/i);
+  if (st2) out.state_code = st2[1].toUpperCase();
+  return out;
 }
-
-// Wrapper: prefer Google if key present, else fallback
+// Wrapper: use Google only; if missing key, return best-effort parsed location so UI isn't blank
 async function geocode(address){
   const q = (address || '').trim();
   if (!q) throw new Error('Empty address');
-  if (window.GMAPS_API_KEY){
-    try { return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) }); } catch {}
+  if (!window.GMAPS_API_KEY){
+    return parseLooseLocation(q);
   }
-  return await geocodeNominatim(q);
+  return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) });
 }
 
 function haversineMi(a, b){
@@ -380,6 +294,14 @@ async function saveVehicle(){
       .update({ name, msrp, location, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
       .eq('id', selected);
     if (error){ alert('Update failed: ' + error.message); return; }
+    // Reflect new location immediately in UI
+    if (state.selectedVehicle && state.selectedVehicle.id === selected){
+      state.selectedVehicle.location = location;
+      try { await updateVehicleGeodata(); } catch {}
+      updateDistanceUI();
+      updateDbMetaUI();
+      computeAll();
+    }
   } else {
     const { data, error } = await state.supabase.from('vehicles')
       .insert({ name, msrp, location, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
@@ -406,8 +328,8 @@ async function deleteVehicle(){
   $('#vehicleSelect').value = '';
   state.selectedVehicle = null;
   state.vehicleCoords = null; state.vehicleCounty = null; state.vehicleCity = null; state.vehicleZip = null;
-  $('#calcVehicleName').textContent = '—';
-  $('#calcMsrp').textContent = '—';
+  const summaryVeh = document.getElementById('summaryVehicle'); if (summaryVeh) summaryVeh.textContent = '—';
+  const summaryMsrp = document.getElementById('summaryMsrp'); if (summaryMsrp) summaryMsrp.textContent = '—';
   const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
   const countyEl = document.getElementById('dbCounty'); if (countyEl) countyEl.textContent = '—';
   const distEl = document.getElementById('dbDistance'); if (distEl) distEl.textContent = '—';
@@ -425,8 +347,8 @@ function onVehicleSelected(){
     state.vehicleCounty = null;
     state.vehicleZip = null;
     state.vehicleCity = null;
-    const vNameEl = document.getElementById('calcVehicleName');
-    const msrpEl = document.getElementById('calcMsrp');
+    const vNameEl = document.getElementById('summaryVehicle');
+    const msrpEl = document.getElementById('summaryMsrp');
     if (vNameEl) vNameEl.textContent = '—';
     if (msrpEl) msrpEl.textContent = '—';
     const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
@@ -441,8 +363,8 @@ function onVehicleSelected(){
   const msrp = opt.dataset.msrp || '';
   const location = decodeURIComponent(opt.dataset.location || '');
   state.selectedVehicle = { id: opt.value, name, msrp: parseCurrency(msrp), location };
-  $('#calcVehicleName').textContent = name || '—';
-  $('#calcMsrp').textContent = msrp ? formatCurrency(parseCurrency(msrp)) : '—';
+  const summaryVeh2 = document.getElementById('summaryVehicle'); if (summaryVeh2) summaryVeh2.textContent = name || '—';
+  const summaryMsrp2 = document.getElementById('summaryMsrp'); if (summaryMsrp2) summaryMsrp2.textContent = msrp ? formatCurrency(parseCurrency(msrp)) : '—';
   // Reflect selection in DB form for convenient updates
   $('#dbVehicleName').value = name || '';
   $('#dbMsrp').value = msrp ? formatCurrency(parseCurrency(msrp)) : '';
@@ -560,9 +482,9 @@ function computeAll(){
   const countyTax = Math.min(taxableBase, countyCap) * countyRate;
   const taxes = stateTax + countyTax;
   const showTaxes = ((priceForCalc && priceForCalc > 0) || tradeValue);
-  $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '—';
+  $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : 'Ready To Compute';
   const tb = document.getElementById('taxesBreakdown');
-  if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : '—'; }
+  if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : 'Ready To Compute'; }
   const trn = document.getElementById('taxesRatesNote');
   if (trn){
     const cPct = (countyRate*100).toFixed(2) + '%';
@@ -576,10 +498,26 @@ function computeAll(){
       trn.textContent = `County: Default - ${cPct}`;
     }
   }
+  // Proactive trade-in tax difference notes
+  const noteWith = document.getElementById('tradeSavingsWith');
+  const noteWithout = document.getElementById('tradeSavingsWithout');
+  if (showTaxes){
+    const baseBeforeFeesNoTrade = Math.max(0, priceForCalc - 0);
+    const taxableBaseNoTrade = Math.max(0, baseBeforeFeesNoTrade + dealerFeesTotal);
+    const stateTaxNo = taxableBaseNoTrade * stateRate;
+    const countyTaxNo = Math.min(taxableBaseNoTrade, countyCap) * countyRate;
+    const taxesNo = stateTaxNo + countyTaxNo;
+    const delta = Math.max(0, taxesNo - taxes);
+    if (noteWith){ setReadyPlaceholder(noteWith, false); noteWith.textContent = `Tax savings with trade-in: ${formatCurrency(tradeValue > 0 ? delta : 0)}`; }
+    if (noteWithout){ setReadyPlaceholder(noteWithout, false); noteWithout.textContent = (tradeValue > 0 && delta > 0) ? `Extra taxes without trade-in: ${formatCurrency(delta)}` : 'Extra taxes without trade-in: —'; }
+  } else {
+    if (noteWith){ setReadyPlaceholder(noteWith, true); noteWith.textContent = 'Tax savings with trade-in: Ready To Compute'; }
+    if (noteWithout){ setReadyPlaceholder(noteWithout, true); noteWithout.textContent = 'Extra taxes without trade-in: Ready To Compute'; }
+  }
   // Total Taxes & Fees (dealer + gov + taxes)
   const totalTF = dealerFeesTotal + govFeesTotal + taxes;
   const totalTFEl = document.getElementById('totalTF');
-  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '—'; }
+  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : 'Ready To Compute'; }
 
   // Amount Financed
   // Formula used:
@@ -589,11 +527,16 @@ function computeAll(){
   const amountWithTF = Math.max(0, baseAmount + (feesTotal + taxes));
   const amountWithoutTF = Math.max(0, baseAmount);
   const amountFinanced = financeTF ? amountWithTF : amountWithoutTF;
-  $('#amountFinanced').textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown) ? formatCurrency(amountFinanced) : '—';
+  const amtEl = document.getElementById('amountFinanced');
+  if (((priceForCalc && priceForCalc > 0) || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown)){
+    setReadyPlaceholder(amtEl, false); amtEl.textContent = formatCurrency(amountFinanced);
+  } else { setReadyPlaceholder(amtEl, true); }
 
   // APR monthly and Payments
   const monthlyRate = apr / 100 / 12;
-  $('#monthlyApr').textContent = apr ? `${numberFmt4.format(apr/12)}%` : '—';
+  const mRateEl = document.getElementById('monthlyApr');
+  if (apr){ setReadyPlaceholder(mRateEl, false); mRateEl.textContent = `${numberFmt4.format(apr/12)}%`; }
+  else { setReadyPlaceholder(mRateEl, true); }
   const pmt = calcPayment(amountFinanced, monthlyRate, term);
   const pmt0 = calcPayment(amountFinanced, 0, term);
   // Savings on monthly payment if not financing taxes & fees
@@ -601,11 +544,14 @@ function computeAll(){
   const pmtWithout = calcPayment(amountWithoutTF, monthlyRate, term);
   const pmtSavings = Math.max(0, pmtWith - pmtWithout);
   const pmtSavingsEl = document.getElementById('pmtSavings');
-  if (pmtSavingsEl){ pmtSavingsEl.textContent = (term && (feesTotal || taxes)) ? `${formatCurrency(pmtSavings)}/mo` : '—'; }
-  $('#monthlyPayment').textContent = (amountFinanced && term) ? formatCurrency(pmt) : '—';
-  $('#payment0').textContent = (amountFinanced && term) ? formatCurrency(pmt0) : '—';
+  if (pmtSavingsEl){ if (term && (feesTotal || taxes)){ setReadyPlaceholder(pmtSavingsEl, false); pmtSavingsEl.textContent = `${formatCurrency(pmtSavings)}/mo`; } else { setReadyPlaceholder(pmtSavingsEl, true); } }
+  const mpEl = document.getElementById('monthlyPayment');
+  if (amountFinanced && term){ setReadyPlaceholder(mpEl, false); mpEl.textContent = formatCurrency(pmt); } else { setReadyPlaceholder(mpEl, true); }
+  const p0El = document.getElementById('payment0');
+  if (amountFinanced && term){ setReadyPlaceholder(p0El, false); p0El.textContent = formatCurrency(pmt0); } else { setReadyPlaceholder(p0El, true); }
   const delta = pmt - pmt0;
-  $('#paymentDelta').textContent = (amountFinanced && term) ? `${formatCurrency(delta)}/mo` : '—';
+  const pdEl = document.getElementById('paymentDelta');
+  if (amountFinanced && term){ setReadyPlaceholder(pdEl, false); pdEl.textContent = `${formatCurrency(delta)}/mo`; } else { setReadyPlaceholder(pdEl, true); }
 
   // Distance
   updateDistanceUI();
@@ -866,15 +812,9 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
     try {
       const res = await geocode(loc);
-      // If no ZIP from geocode, try city ZIP lookup (US only)
-      let zipOut = res.zip || '';
-      const st = res.state_code || (res.state && /florida/i.test(res.state) ? 'FL' : null);
-      if (!zipOut && res.city && st){
-        const zips = await fetchCityZips(res.city, st);
-        if (zips.length){
-          zipOut = zips.includes('33025') ? '33025' : zips.sort((a,b)=>parseInt(a)-parseInt(b))[0];
-        }
-      }
+  // Use ZIP from Google geocode only
+  let zipOut = res.zip || '';
+  const st = res.state_code || (res.state && /florida/i.test(res.state) ? 'FL' : null);
       state.dbLocationGeo = { ...res, zip: zipOut };
       $('#dbLocationCounty').textContent = res.county || '—';
       $('#dbLocationZip').textContent = zipOut || '—';
@@ -904,15 +844,9 @@ window.addEventListener('DOMContentLoaded', async () => {
       try { geo = await geocode(raw); } catch { geo = null; }
     }
     if (geo){
-      // Ensure ZIP present
+      // Use ZIP from Google geocode only
       let zipOut = geo.zip || '';
       const st = geo.state_code || (geo.state && /florida/i.test(geo.state) ? 'FL' : null);
-      if (!zipOut && geo.city && st){
-        const zips = await fetchCityZips(geo.city, st);
-        if (zips.length){
-          zipOut = zips.includes('33025') ? '33025' : zips.sort((a,b)=>parseInt(a)-parseInt(b))[0];
-        }
-      }
       const parts = [];
       if (geo.city) parts.push(geo.city);
       const tail = [st, zipOut].filter(Boolean).join(' ');
@@ -965,6 +899,10 @@ window.addEventListener('DOMContentLoaded', async () => {
       });
       const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
     }
+    if (!window.google?.maps?.places){
+      const brand = document.getElementById('geoBrand');
+      if (brand){ brand.style.display = 'block'; brand.textContent = 'Geocoding unavailable (add Google API key in config.js)'; }
+    }
   } catch {}
 
   // County Rates import modal
@@ -992,40 +930,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     } catch {}
   });
 
-  // Trade-in savings note (in Taxes cell)
-  function currentCountyRateForCalc(){
-    // Prefer last-used county rate from computeAll, fallback to lookup
-    if (typeof state.countyRateUsed === 'number') return state.countyRateUsed;
-    const countyName = state.vehicleCounty || '';
-    return getCountyRate(countyName).rate;
-  }
-  function computeTaxesForTrade(tradeVal){
-    const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
-    const finalPrice = parsePriceExpression(document.getElementById('finalPrice').value, msrp);
-    const dealerFeesTotal = $$('#dealerFeesList .fee-row input.fee-amount')
-      .map(i => parseCurrency(i.value)).reduce((a,b)=>a+b,0);
-    const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
-    const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
-    const countyRate = currentCountyRateForCalc();
-    const baseBeforeFees = Math.max(0, finalPrice - Math.max(0, tradeVal||0));
-    const taxableBase = Math.max(0, baseBeforeFees + dealerFeesTotal);
-    const stateTax = taxableBase * stateRate;
-    const countyTax = Math.min(taxableBase, countyCap) * countyRate;
-    return stateTax + countyTax;
-  }
-  function showTradeSavingsPrompt(){
-    const input = prompt('Enter example Trade-in Value (e.g. $8,000)', '8000');
-    if (!input) return;
-    const trade = parseCurrency(input);
-    if (!(trade > 0)) return;
-    const taxesNoTrade = computeTaxesForTrade(0);
-    const taxesWithTrade = computeTaxesForTrade(trade);
-    const savings = Math.max(0, taxesNoTrade - taxesWithTrade);
-    const el = document.getElementById('tradeSavingsNote');
-    if (el){ el.textContent = `Estimated tax savings with a trade-in: ${formatCurrency(savings)}`; }
-  }
-  const tradeLink = document.getElementById('tradeSavingsLink');
-  if (tradeLink){ tradeLink.addEventListener('click', showTradeSavingsPrompt); }
+  // (Removed trade-in link handler; note is computed proactively in computeAll)
   async function parseExcelFile(file){
     if (typeof XLSX === 'undefined') throw new Error('XLSX library not loaded');
     const buf = await file.arrayBuffer();

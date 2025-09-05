@@ -45,21 +45,18 @@
         </div>
       </section>
 
+      <!-- Current Vehicle Summary -->
+      <section class="summary" id="vehicleSummary">
+        <div class="item"><span class="label">Vehicle:</span> <span class="value" id="summaryVehicle">—</span></div>
+        <div class="item"><span class="label">MSRP / Asking Price:</span> <span class="value" id="summaryMsrp">—</span></div>
+      </section>
+
       <section class="panel" id="calc-panel">
         <div class="panel-header">
           <h2>Calculator</h2>
           <div id="calcMessages" class="messages"></div>
         </div>
         <form id="calcForm" action="#" class="stack" autocomplete="on">
-          <div class="cell">
-            <div class="cell-label">Vehicle</div>
-            <div class="cell-value"><output id="calcVehicleName">—</output></div>
-          </div>
-
-          <div class="cell">
-            <div class="cell-label">MSRP</div>
-            <div class="cell-value"><output id="calcMsrp">—</output></div>
-          </div>
 
           
 
@@ -84,7 +81,7 @@
 
           <div class="cell">
             <div class="cell-label">Trade Equity</div>
-            <div class="cell-value"><output id="tradeEquity">—</output></div>
+            <div class="cell-value"><output id="tradeEquity">Ready To Compute</output></div>
           </div>
 
           <div class="cell">
@@ -112,22 +109,23 @@
           </div>
 
           <div class="cell">
-            <div class="cell-label">Taxes (FL)</div>
+            <div class="cell-label with-action">Taxes (FL)
+              <button id="openTaxFormula" class="link-btn" type="button">Tax Calculation Formula</button>
+            </div>
             <div class="cell-value">
-              <output id="taxes">—</output>
+              <output id="taxes">Ready To Compute</output>
               <div class="note" id="taxesNote">6% state + county rate on first $5k</div>
-              <div class="note" id="taxesRatesNote">Rates: —</div>
-              <div class="note">Breakdown: <span id="taxesBreakdown">—</span></div>
-              <div class="note"><button id="openTaxFormula" class="link-btn" type="button">Tax Calculation Formula</button></div>
-              <div class="hint">Do you have a Trade-in? <button id="tradeSavingsLink" class="link-btn" type="button">Click here</button></div>
-              <div class="note" id="tradeSavingsNote">—</div>
+              <div class="note" id="taxesRatesNote">Rates: Ready To Compute</div>
+              <div class="note">Breakdown: <span id="taxesBreakdown">Ready To Compute</span></div>
+              <div class="note" id="tradeSavingsWith">Tax savings with trade-in: $0.00</div>
+              <div class="note" id="tradeSavingsWithout">Extra taxes without trade-in: —</div>
             </div>
           </div>
 
           <div class="cell">
             <div class="cell-label">Total Taxes &amp; Fees</div>
             <div class="cell-value">
-              <output id="totalTF">—</output>
+              <output id="totalTF">Ready To Compute</output>
             </div>
           </div>
 
@@ -141,7 +139,7 @@
             <div class="cell-value">
               <div class="amount-row">
                 <label class="checkbox"><input id="financeTF" type="checkbox" /> Finance Taxes &amp; Fees</label>
-                <div class="big" id="amountFinanced">—</div>
+                <div class="big" id="amountFinanced">Ready To Compute</div>
               </div>
               <div class="note faint">Savings if not financing T&amp;F: <span id="pmtSavings">—</span></div>
             </div>
@@ -172,9 +170,9 @@
           <div class="cell">
             <div class="cell-label">Monthly Payment</div>
             <div class="cell-value">
-              <div class="big" id="monthlyPayment">—</div>
-              <div class="note faint">0% APR reference: <span id="payment0">—</span></div>
-              <div class="note">Delta vs 0%: <span id="paymentDelta">—</span></div>
+              <div class="big" id="monthlyPayment">Ready To Compute</div>
+              <div class="note faint">0% APR reference: <span id="payment0">Ready To Compute</span></div>
+              <div class="note">Delta vs 0%: <span id="paymentDelta">Ready To Compute</span></div>
             </div>
           </div>
         </form>
@@ -198,7 +196,7 @@
             <input id="dbVehicleName" type="text" placeholder="e.g. 2025 Ram 1500 Limited" />
           </div>
           <div class="db-row">
-            <label for="dbMsrp">MSRP</label>
+            <label for="dbMsrp">MSRP / Asking Price</label>
             <input id="dbMsrp" type="text" inputmode="decimal" placeholder="$83,000.00" />
           </div>
           <div class="db-row">

@@ -61,9 +61,19 @@ body{
 .db-meta-actions{display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-top:8px}
 
 
+.summary{background: var(--panel); border:1px solid var(--border); border-radius:10px; padding:10px; margin:0 auto 16px auto; max-width: 380px; display:flex; gap:12px; justify-content:center; align-items:center; text-align:center; flex-wrap:wrap}
+.summary .item{font-size:12px; color: var(--muted)}
+.summary .item .value{color: var(--text)}
+/* Remove calculator-style borders on summary values */
+.summary .value{background: transparent; border:none; padding:0; border-radius:0}
+
+/* Add a bit more space between Calculator title and first field */
+#calc-panel .stack{ margin-top: 8px }
+
 .stack{display:flex; flex-direction:column; gap:10px; align-items:stretch}
 .cell{display:flex; flex-direction:column; gap:6px; background:#0f1319; border:1px solid var(--border); border-radius:8px; padding:10px}
-.cell-label{font-size:12px; color: var(--muted)}
+.cell-label{font-size:12px; color: var(--muted); text-transform: uppercase}
+.cell-label.with-action{ display:flex; align-items:center; justify-content: space-between; gap:8px }
 .label{font-size:12px; color: var(--muted); padding:10px 0}
 .value{background:#0f1319; border:1px solid var(--border); border-radius:8px; padding:10px; max-width: 380px}
 .value input, .value select, .settings-grid input, .cell-value input, .cell-value select{
@@ -76,6 +86,8 @@ body{
 }
 .value output{font-variant-numeric: tabular-nums}
 .big{font-size: 20px; font-variant-numeric: tabular-nums}
+.placeholder{ font-size: 12px !important; color: var(--muted) !important; }
+.big.placeholder{ font-size: 12px !important; font-variant-numeric: normal }
 .note{margin-top:6px; font-size:12px; color: var(--muted); opacity: .75; white-space: nowrap}
 .note.warn{color: var(--warn)}
 .note.faint{opacity:.75}
@@ -86,6 +98,9 @@ body{
 
 .amount-row{display:flex; align-items:center; gap:12px; justify-content:space-between}
 .amount-row .checkbox{white-space: nowrap}
+/* Slightly smaller label + checkbox in Amount Financed row */
+#calc-panel .amount-row .checkbox{ font-size: 12px }
+#calc-panel .amount-row .checkbox input[type="checkbox"]{ width:14px; height:14px }
 
 .checkbox{display:flex; align-items:center; gap:8px}
 input[type="checkbox"]{width:16px; height:16px}
@@ -131,7 +146,7 @@ input[type="checkbox"]{width:16px; height:16px}
 .preview-table th, .preview-table td{ border:1px solid var(--border); padding:6px 8px }
 .preview-table th{ color: var(--muted); text-align:left; background:#0f1319 }
 
-.link-btn{ background: transparent; border: none; color: var(--accent); cursor: pointer; padding:0 2px }
+.link-btn{ background: transparent; border: none; color: var(--accent); cursor: pointer; padding:0 2px; font-size: inherit; line-height: inherit }
 .link-btn:hover{ text-decoration: underline }
 
 /* Tooltip (hover/click) for notes */
@@ -145,6 +160,13 @@ input[type="checkbox"]{width:16px; height:16px}
   color: #000000 !important;
   border: 1px solid var(--border);
 }
+
+/* Contain and wrap content inside the Rates modal */
+#ratesModal .modal-body{ overflow-x: auto; }
+#ratesModal .hint, #ratesModal .note{ white-space: normal; }
+#ratesModal textarea{ max-width: 100%; width: 100%; box-sizing: border-box; }
+#ratesModal .preview-table{ table-layout: fixed; width: 100%; }
+#ratesModal .preview-table th, #ratesModal .preview-table td{ word-break: break-word; white-space: normal; }
 
 /* Style the file upload button where supported */
 #ratesModal input[type="file"]::file-selector-button{
