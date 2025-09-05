@@ -81,6 +81,12 @@ function parsePercent(s){
   return isNaN(v) ? 0 : v;
 }
 
+function fmtCoords(lat, lon){
+  const la = Number(lat), lo = Number(lon);
+  if (Number.isFinite(la) && Number.isFinite(lo)) return `${la.toFixed(5)}, ${lo.toFixed(5)}`;
+  return '—';
+}
+
 function normalizeLocationFromGeo(geo){
   if (!geo) return '';
   const zipOut = geo.zip || '';
@@ -339,7 +345,7 @@ async function saveVehicle(){
     try { geo = await geocode(location); } catch { geo = null; }
   }
   // Improve geo: if we have coords but missing county, try reverse geocode
-  if (geo && (geo.county == null || geo.county === '—') && isFinite(geo.lat) && isFinite(geo.lon) && window.ENABLE_GOOGLE_GEOCODING !== false){
+  if (geo && (geo.county == null || geo.county === '—') && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
     try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
   }
   // Normalize location string if we have structured geo
@@ -357,7 +363,7 @@ async function saveVehicle(){
     // Reflect new location immediately in UI
     if (state.selectedVehicle && state.selectedVehicle.id === selected){
       state.selectedVehicle.location = locationNorm;
-      if (geo && isFinite(geo.lat) && isFinite(geo.lon)){
+      if (geo && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
         state.vehicleCoords = { lat: Number(geo.lat), lon: Number(geo.lon) };
       }
       if (geo && geo.county){ state.vehicleCounty = geo.county; }
@@ -635,17 +641,17 @@ function calcPayment(pv, r, n){
 function updateDistanceUI(){
   const dEl = $('#dbDistance');
   if (!dEl) return;
-  if (!state.homeCoords || !isFinite(state.homeCoords.lat) || !isFinite(state.homeCoords.lon)){
+  if (!state.homeCoords || !Number.isFinite(Number(state.homeCoords.lat)) || !Number.isFinite(Number(state.homeCoords.lon))){
     dEl.textContent = '—';
     return;
   }
   // If editing in modal and we have a live geocode result, use that for preview distance
   const vehModal = document.getElementById('vehicleModal');
   const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
-  const coords = (modalOpen && state.dbLocationGeo && isFinite(state.dbLocationGeo.lat) && isFinite(state.dbLocationGeo.lon))
+  const coords = (modalOpen && state.dbLocationGeo && Number.isFinite(Number(state.dbLocationGeo.lat)) && Number.isFinite(Number(state.dbLocationGeo.lon)))
     ? { lat: Number(state.dbLocationGeo.lat), lon: Number(state.dbLocationGeo.lon) }
     : state.vehicleCoords;
-  if (!coords || !isFinite(coords.lat) || !isFinite(coords.lon)){
+  if (!coords || !Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lon))){
     dEl.textContent = '—';
     return;
   }
@@ -868,7 +874,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     const input = document.getElementById('homeInput');
     if (input){ input.value = state.homeAddress || ''; }
     const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
-    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = (state.homeCoords && isFinite(state.homeCoords.lat) && isFinite(state.homeCoords.lon)) ? `${state.homeCoords.lat.toFixed(5)}, ${state.homeCoords.lon.toFixed(5)}` : '—';
+    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords?.lat, state.homeCoords?.lon);
     state.pendingHomeGeo = null;
     if (homeModal){ homeModal.classList.add('open'); homeModal.setAttribute('aria-hidden','false'); }
   };
@@ -879,7 +885,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!raw && !state.pendingHomeGeo){ closeHomeModal(); return; }
     let geo = state.pendingHomeGeo;
     if (!geo && raw){ try { geo = await geocode(raw); } catch { geo = null; } }
-    if (!geo || !isFinite(geo.lat) || !isFinite(geo.lon)){
+    if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lon))){
       alert('Could not resolve location. Please select a suggestion or enter a valid City/ZIP.');
       return;
     }
@@ -892,7 +898,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     state.homeZip = geo.zip || null;
     state.homeCity = geo.city || null;
     const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
-    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = `${state.homeCoords.lat.toFixed(5)}, ${state.homeCoords.lon.toFixed(5)}`;
+    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords.lat, state.homeCoords.lon);
     updateDistanceUI();
     updateDbMetaUI();
     computeAll();
@@ -925,12 +931,12 @@ window.addEventListener('DOMContentLoaded', async () => {
           if (loc){
             try { geo = await geocode(loc); } catch { geo = null; }
             // If still missing county but coords exist, try reverse geocode
-            if (geo && (!geo.county || geo.county === '—') && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)){
+            if (geo && (!geo.county || geo.county === '—') && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
               try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
             }
           }
           const update = {};
-          if (!haveCoords && geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)){
+          if (!haveCoords && geo && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
             update.latitude = Number(geo.lat);
             update.longitude = Number(geo.lon);
           }
@@ -982,7 +988,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       state.dbLocationGeo = { ...res, zip: zipOut };
       $('#dbLocationCounty').textContent = res.county || '—';
       $('#dbLocationZip').textContent = zipOut || '—';
-      $('#dbLocationCoords').textContent = `${res.lat.toFixed(5)}, ${res.lon.toFixed(5)}`;
+      $('#dbLocationCoords').textContent = fmtCoords(res.lat, res.lon);
       // Also preview in the DB meta section
       const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
       const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
@@ -1030,7 +1036,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = geo.county || '—';
       document.getElementById('dbLocationCounty').textContent = geo.county || '—';
       document.getElementById('dbLocationZip').textContent = zipOut || '—';
-      document.getElementById('dbLocationCoords').textContent = (isFinite(geo.lat) && isFinite(geo.lon)) ? `${Number(geo.lat).toFixed(5)}, ${Number(geo.lon).toFixed(5)}` : '—';
+      document.getElementById('dbLocationCoords').textContent = fmtCoords(geo.lat, geo.lon);
       updateDistanceUI();
       updateDbMetaUI();
     }
@@ -1041,7 +1047,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!window.GMAPS_API_KEY || window.google?.maps?.places) return true;
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly`;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async`;
       s.async = true; s.defer = true;
       s.onload = resolve; s.onerror = reject;
       document.head.appendChild(s);
@@ -1072,7 +1078,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             const lat = p.geometry?.location?.lat?.() ?? null;
             const lon = p.geometry?.location?.lng?.() ?? null;
             // If county is missing but coords available, try reverse geocoding
-            if ((!county || county === '—') && isFinite(lat) && isFinite(lon) && window.ENABLE_GOOGLE_GEOCODING !== false){
+            if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
               try {
                 const rev = await geocodeGoogleReverse(lat, lon);
                 county = rev.county || county;
@@ -1086,7 +1092,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             } catch {}
             document.getElementById('dbLocationCounty').textContent = county || '—';
             document.getElementById('dbLocationZip').textContent = zip || '—';
-            document.getElementById('dbLocationCoords').textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
+            document.getElementById('dbLocationCoords').textContent = fmtCoords(lat, lon);
             const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
             const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
             const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
@@ -1123,7 +1129,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             // Normalize visible input
             try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
             const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
-            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
+            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
             const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
           });
           const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
