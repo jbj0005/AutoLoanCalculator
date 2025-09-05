@@ -21,6 +21,11 @@
       <section class="panel" id="db-panel">
         <div class="panel-header">
           <h2>Vehicle Database</h2>
+          <div class="header-actions">
+            <button id="addVehicleBtn" class="btn">Add</button>
+            <button id="updateVehicleBtn" class="btn">Update</button>
+            <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
+          </div>
           <div id="supabase-status" class="status warn">Supabase not configured</div>
         </div>
         <div class="db-row">
@@ -29,9 +34,6 @@
             <select id="vehicleSelect">
               <option value="">Select Vehicle</option>
             </select>
-            <button id="addVehicleBtn" class="btn">Add</button>
-            <button id="updateVehicleBtn" class="btn">Update</button>
-            <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
           </div>
         </div>
         <div class="db-meta">
