@@ -907,6 +907,27 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (verEl && window.APP_VERSION){ verEl.textContent = String(window.APP_VERSION); }
   } catch {}
 
+  // Optional debug helper: manually fetch and log an App Check token
+  window.testAppCheck = async () => {
+    try {
+      const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
+      if (!siteKey) return console.warn('No RECAPTCHA_ENTERPRISE_SITE_KEY configured');
+      if (!window.grecaptcha || !window.grecaptcha.enterprise){
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
+          s.async = true; s.defer = true;
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      await new Promise(res => window.grecaptcha.enterprise.ready(res));
+      const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
+      console.log('App Check token acquired (truncated):', tok ? tok.slice(0, 16) + '…' : tok);
+      return tok;
+    } catch (e){ console.warn('testAppCheck failed', e); return null; }
+  };
+
   // Inputs (currency formatter for all except finalPrice which supports expressions)
   ['tradeValue','loanPayoff','cashDown'].forEach(id => {
     const el = document.getElementById(id);
@@ -1158,10 +1179,34 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Load Google Places Autocomplete if key provided
   async function loadGoogleMaps(){
-    if (!window.GMAPS_API_KEY || window.google?.maps?.places) return true;
+    if (!window.GMAPS_API_KEY || window.google?.maps) return true;
+    let tokenParam = '';
+    try {
+      const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
+      if (siteKey){
+        // Load reCAPTCHA Enterprise if not present
+        if (!window.grecaptcha || !window.grecaptcha.enterprise){
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
+            s.async = true; s.defer = true;
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+        if (window.grecaptcha?.enterprise?.ready){
+          await new Promise(res => window.grecaptcha.enterprise.ready(res));
+          const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
+          if (tok) tokenParam = `&app_check_token=${encodeURIComponent(tok)}`;
+        }
+      }
+    } catch (e) {
+      console.warn('App Check token fetch failed; continuing without token', e);
+    }
+    // Load Maps JS with Places library
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async`;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async${tokenParam}`;
       s.async = true; s.defer = true;
       s.onload = resolve; s.onerror = reject;
       document.head.appendChild(s);
@@ -1172,7 +1217,36 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (window.ENABLE_GOOGLE_PLACES === true){
       await loadGoogleMaps();
       const locInput = document.getElementById('dbLocation');
+      // Prefer PlaceAutocompleteElement when available; fall back to legacy Autocomplete
       if (window.google?.maps?.places && locInput){
+        if (google.maps.places.PlaceAutocompleteElement){
+          try {
+            const pac = new google.maps.places.PlaceAutocompleteElement();
+            pac.id = 'dbLocationPAC'; pac.style.width = '100%';
+            // Insert PAC element before the original input and hide the input
+            locInput.parentElement.insertBefore(pac, locInput);
+            locInput.style.display = 'none';
+            const handlePlaceSelect = async () => {
+              const text = pac.value || '';
+              if (!text.trim()) return;
+              try {
+                const res = await geocode(text);
+                state.dbLocationGeo = { ...res };
+                document.getElementById('dbLocationCounty').textContent = res.county || '—';
+                document.getElementById('dbLocationZip').textContent = res.zip || '—';
+                document.getElementById('dbLocationCoords').textContent = fmtCoords(res.lat, res.lon);
+                const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
+                const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
+                updateDistanceUI();
+                updateDbMetaUI();
+              } catch {}
+            };
+            pac.addEventListener?.('gmp-placeselect', handlePlaceSelect);
+            pac.addEventListener?.('place_changed', handlePlaceSelect);
+          } catch (e) {
+            console.warn('PAC element init failed; falling back to legacy Autocomplete', e);
+          }
+        }
         try {
           const ac = new google.maps.places.Autocomplete(locInput, {
             fields: ['address_components','geometry','name'],
@@ -1222,6 +1296,30 @@ window.addEventListener('DOMContentLoaded', async () => {
       // Home input Places Autocomplete
       const homeInput = document.getElementById('homeInput');
       if (window.google?.maps?.places && homeInput){
+        if (google.maps.places.PlaceAutocompleteElement){
+          try {
+            const pacHome = new google.maps.places.PlaceAutocompleteElement();
+            pacHome.id = 'homePAC'; pacHome.style.width = '100%';
+            homeInput.parentElement.insertBefore(pacHome, homeInput);
+            homeInput.style.display = 'none';
+            const handleHomeSelect = async () => {
+              const text = pacHome.value || '';
+              if (!text.trim()) return;
+              try {
+                const res = await geocode(text);
+                state.pendingHomeGeo = { ...res };
+                try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) pacHome.value = norm; } catch {}
+                const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = res.county || '—';
+                const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = res.zip || '—';
+                const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(res.lat, res.lon);
+              } catch {}
+            };
+            pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
+            pacHome.addEventListener?.('place_changed', handleHomeSelect);
+          } catch (e) {
+            console.warn('Home PAC element init failed; falling back to legacy Autocomplete', e);
+          }
+        }
         try {
           const acHome = new google.maps.places.Autocomplete(homeInput, {
             fields: ['address_components','geometry','name'],
