@@ -656,6 +656,7 @@ function updateDistanceUI(){
 function updateDbMetaUI(){
   const cityEl = $('#dbCity');
   const countyEl = $('#dbCounty');
+  const homeAddrEl = $('#dbHomeAddress');
   if (!cityEl && !countyEl) return;
   const vehModal = document.getElementById('vehicleModal');
   const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
@@ -666,6 +667,7 @@ function updateDbMetaUI(){
     if (cityEl) cityEl.textContent = state.vehicleCity || '—';
     if (countyEl) countyEl.textContent = state.vehicleCounty || '—';
   }
+  if (homeAddrEl){ homeAddrEl.textContent = state.homeAddress || '—'; }
 }
 
 // --- Dynamic calculator width ---
