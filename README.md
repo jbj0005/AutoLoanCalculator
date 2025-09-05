@@ -92,9 +92,9 @@ window.SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 
 ## Distance From Home
 
-- Home address defaults to `4240 Miami Ave Melbourne, FL 32904`.
-- You can change it in Settings; geocoded and cached in your browser.
-- Vehicle location is geocoded when you leave the Location field or when saving a vehicle.
+- Optionally set your Home ZIP or full address using the "Update Home Address" button in the Vehicle card.
+- The address is geocoded and cached locally in your browser; clear or update it anytime.
+- Vehicle location is geocoded when you type in the modal or when saving a vehicle.
 - Distance uses the Haversine formula (great-circle distance).
 
 Note: Geocoding uses OpenStreetMap Nominatim for light, personal use. For heavier usage, bring your own geocoding provider + key.

@@ -3,7 +3,7 @@
  */
 
 // --- Configuration / Defaults ---
-const HOME_ADDRESS_DEFAULT = "4240 Miami Ave Melbourne, FL 32904";
+const HOME_ADDRESS_DEFAULT = ""; // no personal default; user can set ZIP or address
 const COUNTY_DATA_URL = "data/county_tax_fl.json";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"; // Geocoding (light use only)
 
@@ -140,6 +140,10 @@ function haversineMi(a, b){
 
 async function ensureHomeCoords(){
   const addr = state.homeAddress || HOME_ADDRESS_DEFAULT;
+  if (!addr){
+    // No home address set; skip geocoding and keep distance hidden
+    return;
+  }
   const cached = localStorage.getItem('homeCoords');
   if (cached){
     try { state.homeCoords = JSON.parse(cached); } catch {}
@@ -156,7 +160,7 @@ async function ensureHomeCoords(){
     }
   }
   // Try to keep homeZip in sync if missing
-  if (!state.homeZip || !state.homeCity){
+  if (addr && (!state.homeZip || !state.homeCity)){
     try { const res = await geocode(addr); state.homeZip = state.homeZip || res.zip || null; state.homeCity = state.homeCity || res.city || null; } catch{}
   }
 }
@@ -512,8 +516,8 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Update home address via prompt
   const updateHome = async () => {
-    const current = state.homeAddress || HOME_ADDRESS_DEFAULT;
-    const val = prompt('Update Home Address', current);
+    const current = state.homeAddress || '';
+    const val = prompt('Update Home (ZIP or Address)', current);
     if (val && val.trim()){
       const addr = val.trim();
       localStorage.setItem('homeAddress', addr);
