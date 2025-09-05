@@ -53,6 +53,8 @@ body{
 .status.err{color:var(--danger)}
 
 .db-row{display:grid; grid-template-columns: 140px 1fr; gap:10px; align-items:center; margin:8px 0}
+.vehicles-row{ grid-template-columns: 140px 1fr auto }
+#db-panel .db-row.vehicles-row #supabase-status{ justify-self: end }
 .db-row .row-actions{display:flex; gap:8px; align-items:center}
 .db-row .row-actions{flex-wrap: wrap}
 .db-row .row-actions select{flex:1 1 200px; min-width:200px}
