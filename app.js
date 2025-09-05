@@ -87,6 +87,19 @@ function fmtCoords(lat, lon){
   return '—';
 }
 
+// Basic focus + page inert helpers for modals
+function setPageInert(except){
+  const children = Array.from(document.body.children);
+  for (const el of children){
+    if (el === except) continue;
+    el.setAttribute('inert', '');
+  }
+}
+function clearPageInert(){
+  const inertEls = document.querySelectorAll('body > *[inert]');
+  inertEls.forEach(el => el.removeAttribute('inert'));
+}
+
 function normalizeLocationFromGeo(geo){
   if (!geo) return '';
   const zipOut = geo.zip || '';
@@ -202,9 +215,11 @@ async function geocodeGoogle(query, { biasFL = true } = {}){
 
 // Reverse geocode: lat/lon -> city/county/state/zip
 async function geocodeGoogleReverse(lat, lon){
+  const la = Number(lat), lo = Number(lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) throw new Error('Invalid coordinates for reverse geocode');
   const base = 'https://maps.googleapis.com/maps/api/geocode/json';
   const url = new URL(base);
-  url.searchParams.set('latlng', `${lat},${lon}`);
+  url.searchParams.set('latlng', `${la},${lo}`);
   url.searchParams.set('key', window.GMAPS_API_KEY);
   const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
   if (!res.ok) throw new Error('Google reverse geocode failed');
@@ -759,14 +774,28 @@ function openVehicleModal(mode){
       return;
     }
   }
+  // manage focus + inert while opening
+  state.prevFocus = document.activeElement;
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
+  try { setPageInert(modal.parentElement ? modal.parentElement : modal); } catch {}
+  // focus first meaningful control
+  const focusEl = document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
+  if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
 }
 
 function closeVehicleModal(){
   const modal = document.getElementById('vehicleModal');
+  // blur any focused descendant before hiding from AT
+  const active = document.activeElement;
+  if (active && modal.contains(active) && typeof active.blur === 'function') active.blur();
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden', 'true');
+  clearPageInert();
+  // restore focus to opener if possible
+  if (state.prevFocus && document.contains(state.prevFocus) && typeof state.prevFocus.focus === 'function'){
+    try { state.prevFocus.focus(); } catch {}
+  }
 }
 
 // --- Fees UI ---
@@ -876,9 +905,27 @@ window.addEventListener('DOMContentLoaded', async () => {
     const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
     const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords?.lat, state.homeCoords?.lon);
     state.pendingHomeGeo = null;
-    if (homeModal){ homeModal.classList.add('open'); homeModal.setAttribute('aria-hidden','false'); }
+    if (homeModal){
+      state.prevFocus = document.activeElement;
+      homeModal.classList.add('open');
+      homeModal.setAttribute('aria-hidden','false');
+      try { setPageInert(homeModal.parentElement ? homeModal.parentElement : homeModal); } catch {}
+      const focusEl = document.getElementById('homeInput');
+      if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
+    }
   };
-  const closeHomeModal = () => { if (homeModal){ homeModal.classList.remove('open'); homeModal.setAttribute('aria-hidden','true'); } };
+  const closeHomeModal = () => {
+    if (homeModal){
+      const active = document.activeElement;
+      if (active && homeModal.contains(active) && typeof active.blur === 'function') active.blur();
+      homeModal.classList.remove('open');
+      homeModal.setAttribute('aria-hidden','true');
+      clearPageInert();
+      if (state.prevFocus && document.contains(state.prevFocus) && typeof state.prevFocus.focus === 'function'){
+        try { state.prevFocus.focus(); } catch {}
+      }
+    }
+  };
   const saveHome = async () => {
     const input = document.getElementById('homeInput');
     const raw = (input?.value || '').trim();
