@@ -21,7 +21,8 @@ const state = {
   supabase: null,
   selectedVehicle: null,
   dbLocationGeo: null,
-  pendingRatesImport: null
+  pendingRatesImport: null,
+  pendingHomeGeo: null
 };
 
 // --- DOM Helpers ---
@@ -634,14 +635,20 @@ function calcPayment(pv, r, n){
 function updateDistanceUI(){
   const dEl = $('#dbDistance');
   if (!dEl) return;
-  if (!state.homeCoords){ dEl.textContent = '—'; return; }
+  if (!state.homeCoords || !isFinite(state.homeCoords.lat) || !isFinite(state.homeCoords.lon)){
+    dEl.textContent = '—';
+    return;
+  }
   // If editing in modal and we have a live geocode result, use that for preview distance
   const vehModal = document.getElementById('vehicleModal');
   const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
   const coords = (modalOpen && state.dbLocationGeo && isFinite(state.dbLocationGeo.lat) && isFinite(state.dbLocationGeo.lon))
     ? { lat: Number(state.dbLocationGeo.lat), lon: Number(state.dbLocationGeo.lon) }
     : state.vehicleCoords;
-  if (!coords){ dEl.textContent = '—'; return; }
+  if (!coords || !isFinite(coords.lat) || !isFinite(coords.lon)){
+    dEl.textContent = '—';
+    return;
+  }
   const d = haversineMi(state.homeCoords, coords);
   dEl.textContent = d ? `${numberFmt.format(d)} mi` : '—';
 }
@@ -853,23 +860,46 @@ window.addEventListener('DOMContentLoaded', async () => {
   // (Removed) Pencil icons to open update dialog
   loadVehicles();
 
-  // Update home address via prompt
-  const updateHome = async () => {
-    const current = state.homeAddress || '';
-    const val = prompt('Update Home (ZIP or Address)', current);
-    if (val && val.trim()){
-      const addr = val.trim();
-      localStorage.setItem('homeAddress', addr);
-      state.homeAddress = addr;
-      localStorage.removeItem('homeCoords');
-      state.homeCoords = null;
-      await ensureHomeCoords();
-      updateDistanceUI();
-      updateDbMetaUI();
-      computeAll();
-    }
+  // Home Address modal (Places-like UX)
+  const homeModal = document.getElementById('homeModal');
+  const openHomeModal = () => {
+    const input = document.getElementById('homeInput');
+    if (input){ input.value = state.homeAddress || ''; }
+    const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
+    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = (state.homeCoords && isFinite(state.homeCoords.lat) && isFinite(state.homeCoords.lon)) ? `${state.homeCoords.lat.toFixed(5)}, ${state.homeCoords.lon.toFixed(5)}` : '—';
+    state.pendingHomeGeo = null;
+    if (homeModal){ homeModal.classList.add('open'); homeModal.setAttribute('aria-hidden','false'); }
   };
-  document.getElementById('updateHomeBtn').addEventListener('click', updateHome);
+  const closeHomeModal = () => { if (homeModal){ homeModal.classList.remove('open'); homeModal.setAttribute('aria-hidden','true'); } };
+  const saveHome = async () => {
+    const input = document.getElementById('homeInput');
+    const raw = (input?.value || '').trim();
+    if (!raw && !state.pendingHomeGeo){ closeHomeModal(); return; }
+    let geo = state.pendingHomeGeo;
+    if (!geo && raw){ try { geo = await geocode(raw); } catch { geo = null; } }
+    if (!geo || !isFinite(geo.lat) || !isFinite(geo.lon)){
+      alert('Could not resolve location. Please select a suggestion or enter a valid City/ZIP.');
+      return;
+    }
+    // Normalize address string
+    const norm = normalizeLocationFromGeo(geo) || raw;
+    state.homeAddress = norm;
+    localStorage.setItem('homeAddress', norm);
+    state.homeCoords = { lat: Number(geo.lat), lon: Number(geo.lon) };
+    localStorage.setItem('homeCoords', JSON.stringify(state.homeCoords));
+    state.homeZip = geo.zip || null;
+    state.homeCity = geo.city || null;
+    const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
+    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = `${state.homeCoords.lat.toFixed(5)}, ${state.homeCoords.lon.toFixed(5)}`;
+    updateDistanceUI();
+    updateDbMetaUI();
+    computeAll();
+    closeHomeModal();
+  };
+  document.getElementById('updateHomeBtn').addEventListener('click', openHomeModal);
+  document.getElementById('homeSave').addEventListener('click', saveHome);
+  document.getElementById('homeCancel').addEventListener('click', closeHomeModal);
+  document.getElementById('homeClose').addEventListener('click', closeHomeModal);
 
   // Backfill geo for saved vehicles (county/coords) and normalize location strings
   async function backfillVehicleGeo(){
@@ -1064,6 +1094,39 @@ window.addEventListener('DOMContentLoaded', async () => {
           const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
         } catch (e) {
           const brand = document.getElementById('geoBrand');
+          if (brand){ brand.style.display = 'block'; brand.textContent = 'Autocomplete disabled (provider error)'; }
+        }
+      }
+      // Home input Places Autocomplete
+      const homeInput = document.getElementById('homeInput');
+      if (window.google?.maps?.places && homeInput){
+        try {
+          const acHome = new google.maps.places.Autocomplete(homeInput, {
+            fields: ['address_components','geometry','name'],
+            componentRestrictions: { country: 'us' }
+          });
+          acHome.addListener('place_changed', async () => {
+            const p = acHome.getPlace();
+            if (!p || !p.address_components) return;
+            const get = (type, short=false) => {
+              const c = p.address_components.find(ac => ac.types.includes(type));
+              return c ? (short ? c.short_name : c.long_name) : null;
+            };
+            const city = get('locality') || get('postal_town') || get('sublocality');
+            const state_code = get('administrative_area_level_1', true);
+            const zip = get('postal_code');
+            const lat = p.geometry?.location?.lat?.() ?? null;
+            const lon = p.geometry?.location?.lng?.() ?? null;
+            state.pendingHomeGeo = { city, state_code, zip, lat, lon };
+            // Normalize visible input
+            try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
+            const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
+            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = (lat && lon) ? `${lat.toFixed(5)}, ${lon.toFixed(5)}` : '—';
+            const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
+          });
+          const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
+        } catch (e) {
+          const brand = document.getElementById('homeBrand');
           if (brand){ brand.style.display = 'block'; brand.textContent = 'Autocomplete disabled (provider error)'; }
         }
       }

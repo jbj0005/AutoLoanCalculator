@@ -215,6 +215,30 @@
       </div>
     </div>
 
+    <!-- Home Address Modal -->
+    <div id="homeModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="homeModalTitle">
+        <div class="modal-header">
+          <h3 id="homeModalTitle">Home Address</h3>
+          <button id="homeClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row">
+            <label for="homeInput">Home</label>
+            <div>
+              <input id="homeInput" type="text" placeholder="City, State or ZIP" autocomplete="off" />
+              <div class="note">ZIP: <span id="homeZip">—</span> • <span id="homeCoords">—</span></div>
+              <div class="hint" id="homeBrand" style="display:none">Geocoding by Google</div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="homeSave" class="btn primary">Save</button>
+          <button id="homeCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
     <!-- County Rates Modal -->
     <div id="ratesModal" class="modal" aria-hidden="true">
       <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ratesModalTitle">
