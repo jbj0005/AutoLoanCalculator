@@ -680,7 +680,7 @@ function addFeeRow(name = '', amount = ''){
   row.className = 'fee-row';
   row.innerHTML = `
     <input class=\"fee-name\" type=\"text\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" placeholder=\"e.g., enterkeyhint=\"done\" placeholder=\"e.g., $999\"\" value=\"${amount}\" />
+    <input class=\"fee-amount\" type=\"text\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
     <button class="remove">Remove</button>
   `;
   row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });
