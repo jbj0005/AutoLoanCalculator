@@ -871,6 +871,64 @@ window.addEventListener('DOMContentLoaded', async () => {
   };
   document.getElementById('updateHomeBtn').addEventListener('click', updateHome);
 
+  // Backfill geo for saved vehicles (county/coords) and normalize location strings
+  async function backfillVehicleGeo(){
+    if (!state.supabase){ alert('Supabase not configured'); return; }
+    const proceed = confirm('Backfill county/coordinates for all saved vehicles?');
+    if (!proceed) return;
+    try {
+      const { data, error } = await state.supabase
+        .from('vehicles')
+        .select('id,name,location,latitude,longitude,county');
+      if (error) throw error;
+      if (!data || !data.length){ alert('No vehicles found'); return; }
+      let updated = 0, skipped = 0, failed = 0;
+      for (const v of data){
+        try {
+          const id = v.id;
+          const loc = (v.location || '').trim();
+          const haveCoords = Number.isFinite(parseFloat(v.latitude)) && Number.isFinite(parseFloat(v.longitude));
+          const haveCounty = !!(v.county && String(v.county).trim());
+          let geo = null;
+          if (loc){
+            try { geo = await geocode(loc); } catch { geo = null; }
+            // If still missing county but coords exist, try reverse geocode
+            if (geo && (!geo.county || geo.county === '—') && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)){
+              try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
+            }
+          }
+          const update = {};
+          if (!haveCoords && geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lon)){
+            update.latitude = Number(geo.lat);
+            update.longitude = Number(geo.lon);
+          }
+          if (!haveCounty && geo && geo.county){ update.county = geo.county; }
+          if (geo){
+            const norm = normalizeLocationFromGeo(geo);
+            if (norm && norm !== loc){ update.location = norm; }
+          }
+          if (Object.keys(update).length){
+            const { error: uerr } = await state.supabase.from('vehicles').update(update).eq('id', id);
+            if (uerr) throw uerr;
+            updated++;
+          } else {
+            skipped++;
+          }
+        } catch(e){
+          console.warn('Backfill failed for vehicle', v.id, e);
+          failed++;
+        }
+      }
+      await loadVehicles();
+      // Refresh UI if currently selected vehicle is impacted
+      if ($('#vehicleSelect').value){ onVehicleSelected(); }
+      alert(`Backfill complete. Updated: ${updated}, Skipped: ${skipped}, Failed: ${failed}`);
+    } catch (e){
+      alert('Backfill failed: ' + (e.message || e));
+    }
+  }
+  document.getElementById('backfillGeoBtn').addEventListener('click', backfillVehicleGeo);
+
   // Geocode DB location as you type (debounced)
   const debouncedDbLoc = debounce(async () => {
     const loc = $('#dbLocation').value.trim();
