@@ -814,6 +814,36 @@ function computeCalcPanelWidth(){
 }
 
 // --- Modal helpers ---
+async function ensureVehiclePAC(){
+  try {
+    if (document.getElementById('dbLocationPAC')) return;
+    await loadGoogleMaps();
+    if (!window.google?.maps?.places?.PlaceAutocompleteElement) return;
+    const locInput = document.getElementById('dbLocation');
+    if (!locInput || !locInput.parentElement) return;
+    const pac = new google.maps.places.PlaceAutocompleteElement();
+    pac.id = 'dbLocationPAC'; pac.style.width = '100%';
+    locInput.parentElement.insertBefore(pac, locInput);
+    locInput.style.display = 'none';
+    const handlePlaceSelect = async () => {
+      const text = pac.value || '';
+      if (!text.trim()) return;
+      try {
+        const res = await geocode(text);
+        state.dbLocationGeo = { ...res };
+        document.getElementById('dbLocationCounty').textContent = res.county || '—';
+        document.getElementById('dbLocationZip').textContent = res.zip || '—';
+        document.getElementById('dbLocationCoords').textContent = fmtCoords(res.lat, res.lon);
+        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
+        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
+        updateDistanceUI(); updateDbMetaUI();
+      } catch {}
+    };
+    pac.addEventListener?.('gmp-placeselect', handlePlaceSelect);
+    pac.addEventListener?.('place_changed', handlePlaceSelect);
+  } catch {}
+}
+
 function openVehicleModal(mode){
   const modal = document.getElementById('vehicleModal');
   const title = document.getElementById('vehicleModalTitle');
@@ -839,8 +869,10 @@ function openVehicleModal(mode){
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
   try { setPageInert(modal); } catch {}
+  // Mount PAC lazily and focus
+  ensureVehiclePAC();
   // focus first meaningful control
-  const focusEl = document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
+  const focusEl = document.getElementById('dbLocationPAC') || document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
   if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
 }
 
@@ -984,6 +1016,34 @@ window.addEventListener('DOMContentLoaded', async () => {
   loadVehicles();
 
   // Home Address modal (Places-like UX)
+  async function ensureHomePAC(){
+    try {
+      if (document.getElementById('homePAC')) return;
+      await loadGoogleMaps();
+      if (!window.google?.maps?.places?.PlaceAutocompleteElement) return;
+      const homeInput = document.getElementById('homeInput');
+      if (!homeInput || !homeInput.parentElement) return;
+      const pacHome = new google.maps.places.PlaceAutocompleteElement();
+      pacHome.id = 'homePAC'; pacHome.style.width = '100%';
+      homeInput.parentElement.insertBefore(pacHome, homeInput);
+      homeInput.style.display = 'none';
+      const handleHomeSelect = async () => {
+        const text = pacHome.value || '';
+        if (!text.trim()) return;
+        try {
+          const res = await geocode(text);
+          state.pendingHomeGeo = { ...res };
+          try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) pacHome.value = norm; } catch {}
+          const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = res.county || '—';
+          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = res.zip || '—';
+          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(res.lat, res.lon);
+        } catch {}
+      };
+      pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
+      pacHome.addEventListener?.('place_changed', handleHomeSelect);
+    } catch {}
+  }
+
   const homeModal = document.getElementById('homeModal');
   const openHomeModal = () => {
     const input = document.getElementById('homeInput');
@@ -996,7 +1056,8 @@ window.addEventListener('DOMContentLoaded', async () => {
       homeModal.classList.add('open');
       homeModal.setAttribute('aria-hidden','false');
       try { setPageInert(homeModal); } catch {}
-      const focusEl = document.getElementById('homeInput');
+      ensureHomePAC();
+      const focusEl = document.getElementById('homePAC') || document.getElementById('homeInput');
       if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
     }
   };
@@ -1247,7 +1308,8 @@ window.addEventListener('DOMContentLoaded', async () => {
             console.warn('PAC element init failed; falling back to legacy Autocomplete', e);
           }
         }
-        try {
+        // Only attach legacy Autocomplete if PAC not mounted
+        if (!document.getElementById('dbLocationPAC')) try {
           const ac = new google.maps.places.Autocomplete(locInput, {
             fields: ['address_components','geometry','name'],
             componentRestrictions: { country: 'us' }
@@ -1320,7 +1382,7 @@ window.addEventListener('DOMContentLoaded', async () => {
             console.warn('Home PAC element init failed; falling back to legacy Autocomplete', e);
           }
         }
-        try {
+        if (!document.getElementById('homePAC')) try {
           const acHome = new google.maps.places.Autocomplete(homeInput, {
             fields: ['address_components','geometry','name'],
             componentRestrictions: { country: 'us' }
