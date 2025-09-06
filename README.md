@@ -1,4 +1,4 @@
-# Auto Loan Calculator (GitHub Pages) — v0.2.0
+# Auto Loan Calculator (GitHub Pages) — v0.2.1
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 
@@ -87,6 +87,11 @@ Note: As of v0.2.0, all location/geocoding and distance features were removed to
 - Update this file as rates change or expand with more counties for offline accuracy.
 
 ## Removed in v0.2.0
+
+## Changes in v0.2.1
+- Fix: Add/Gov fee buttons no longer submit the form or cause layout shifts.
+- Fix: Prevent duplicate `calcForm` declaration error in `app.js`.
+- Fix: Ensure `config.js` loads before `app.js` so Supabase initialization shows Connected.
 
 - All Google/Geocoding/App Check code
 - Home Address modal and distance calculation

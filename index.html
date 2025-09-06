@@ -10,15 +10,16 @@
     
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <script defer src="app.js"></script>
+    <!-- Load config before app to ensure keys are available -->
     <script defer src="config.js"></script>
+    <script defer src="app.js"></script>
   </head>
   <body>
     <header class="app-header">
       <h1>Brandon's Auto Loan Calculator</h1>
       <div class="header-pills">
         <div id="supabase-status" class="status warn">Supabase not configured</div>
-        <div id="version" class="pill version">v0.2.0</div>
+        <div id="version" class="pill version">v0.2.1</div>
       </div>
     </header>
 
@@ -90,7 +91,7 @@
             <div class="cell-value">
               <div id="dealerFeesList" class="fees-list"></div>
               <div class="fees-actions">
-                <button id="addFee" class="btn small">Add Fee</button>
+                <button id="addFee" type="button" class="btn small">Add Fee</button>
                 <span class="spacer"></span>
                 <span>Total: <strong id="dealerFeesTotal">$0.00</strong></span>
               </div>
@@ -102,7 +103,7 @@
             <div class="cell-value">
               <div id="govFeesList" class="fees-list"></div>
               <div class="fees-actions">
-                <button id="addGovFee" class="btn small">Add Fee</button>
+                <button id="addGovFee" type="button" class="btn small">Add Fee</button>
                 <span class="spacer"></span>
                 <span>Total: <strong id="govFeesTotal">$0.00</strong></span>
               </div>
@@ -116,8 +117,8 @@
             <div class="cell-value">
               <output id="taxes">- -</output>
               <div class="note" id="taxesNote">6% state + county rate on first $5k</div>
-              <div class="note" id="taxesRatesNote">Rates: - -</div>
-              <div class="note">Breakdown: <span id="taxesBreakdown">- -</span></div>
+              <div class="note" id="taxesRatesNote">County Tax Rate = - - (Default)</div>
+              <div class="note"><span id="taxesBreakdown">State Tax — | County Tax —</span></div>
               <div class="note" id="tradeSavingsWith">Tax Savings w/ Trade-in: $0.00</div>
             </div>
           </div>
@@ -141,7 +142,7 @@
                 <label class="checkbox"><input id="financeTF" type="checkbox" /> Finance Taxes &amp; Fees</label>
                 <div class="big" id="amountFinanced">- -</div>
               </div>
-              <div class="note faint">Savings if not financing T&amp;F: <span id="pmtSavings">—</span></div>
+              <div class="note faint"><span id="pmtSavings">Tax &amp; Fees Savings = —</span></div>
             </div>
           </div>
 
@@ -163,7 +164,7 @@
                   <option value="84"></option>
                 </datalist>
               </div>
-              <div class="note">Monthly rate: <span id="monthlyApr">—</span></div>
+              <div class="note">Monthly Rate = <span id="monthlyApr">—</span></div>
             </div>
           </div>
 

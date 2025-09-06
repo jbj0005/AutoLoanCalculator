@@ -418,11 +418,12 @@ function computeAll(){
 
   // Savings
   const savingsEl = $('#savings');
-  savingsEl.classList.remove('warn');
+  savingsEl.classList.remove('warn','computed');
   if (finalPrice > 0 && msrp > 0){
     if (finalPrice < msrp){
       const s = msrp - finalPrice;
-      savingsEl.textContent = `You save ${formatCurrency(s)}`;
+      savingsEl.textContent = `You Save ${formatCurrency(s)}`;
+      savingsEl.classList.add('computed');
     } else if (finalPrice > msrp){
       const over = finalPrice - msrp;
       savingsEl.textContent = `Over MSRP by ${formatCurrency(over)}`;
@@ -478,12 +479,9 @@ function computeAll(){
   const showTaxes = ((priceForCalc && priceForCalc > 0) || tradeValue);
   $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '- -';
   const tb = document.getElementById('taxesBreakdown');
-  if (tb){ tb.textContent = showTaxes ? `State: ${formatCurrency(stateTax)} • County: ${formatCurrency(countyTax)}` : '- -'; }
+  if (tb){ if (showTaxes){ tb.textContent = `State Tax ${formatCurrency(stateTax)} | County Tax ${formatCurrency(countyTax)}`; tb.classList.add('computed'); } else { tb.textContent = 'State Tax — | County Tax —'; tb.classList.remove('computed'); } }
   const trn = document.getElementById('taxesRatesNote');
-  if (trn){
-    const cPct = (countyRate*100).toFixed(2) + '%';
-    trn.textContent = `County: Default - ${cPct}`;
-  }
+  if (trn){ const cPct = (countyRate*100).toFixed(2) + '%'; trn.textContent = `County Tax Rate = ${cPct} (Default)`; }
   // Tax savings with trade-in
   const noteWith = document.getElementById('tradeSavingsWith');
   if (showTaxes){
@@ -815,9 +813,9 @@ function addFeeRow(name = '', amount = ''){
   row.innerHTML = `
     <input class=\"fee-name\" type=\"text\" name=\"dealerFeeName[]\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
     <input class=\"fee-amount\" type=\"text\" name=\"dealerFeeAmount[]\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
-    <button class="remove">Remove</button>
+    <button type=\"button\" class=\"remove\">Remove</button>
   `;
-  row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });
+  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); });
   const amt = row.querySelector('.fee-amount');
   attachCurrencyFormatter(amt);
   $('#dealerFeesList').appendChild(row);
@@ -829,9 +827,9 @@ function addGovFeeRow(name = '', amount = ''){
   row.innerHTML = `
     <input class=\"fee-name\" type=\"text\" name=\"govFeeName[]\" placeholder=\"e.g., Title Fee\" value=\"${name}\" />
     <input class=\"fee-amount\" type=\"text\" name=\"govFeeAmount[]\" inputmode=\"decimal\" placeholder=\"e.g., $85\" value=\"${amount}\" />
-    <button class=\"remove\">Remove</button>
+    <button type=\"button\" class=\"remove\">Remove</button>
   `;
-  row.querySelector('.remove').addEventListener('click', () => { row.remove(); computeAll(); });
+  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); });
   const amt = row.querySelector('.fee-amount');
   attachCurrencyFormatter(amt);
   $('#govFeesList').appendChild(row);
@@ -908,9 +906,11 @@ window.addEventListener('DOMContentLoaded', async () => {
   $('#term').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
   $('#financeTF').addEventListener('change', computeAll);
 
+  // Form submission handled later in a single place
+
   // Fees
-  $('#addFee').addEventListener('click', () => addFeeRow());
-  $('#addGovFee').addEventListener('click', () => addGovFeeRow());
+  $('#addFee').addEventListener('click', (e) => { e.preventDefault(); addFeeRow(); });
+  $('#addGovFee').addEventListener('click', (e) => { e.preventDefault(); addGovFeeRow(); });
 
   // Supabase
   // Modal actions for Add/Update vehicle
@@ -1193,11 +1193,12 @@ window.addEventListener('DOMContentLoaded', async () => {
       updateDistanceUI();
     }
   }, 700);
-  if (window.GEOCODE_ON_INPUT === true){
-    $('#dbLocation').addEventListener('input', debouncedDbLoc);
+  const dbLocInput = document.getElementById('dbLocation');
+  if (window.GEOCODE_ON_INPUT === true && dbLocInput){
+    dbLocInput.addEventListener('input', debouncedDbLoc);
   }
   // On blur, normalize the location field to "City, ST ZIP" when resolvable
-  $('#dbLocation').addEventListener('blur', async () => {
+  if (dbLocInput) dbLocInput.addEventListener('blur', async () => {
     const el = $('#dbLocation');
     const raw = el.value.trim();
     if (!raw) return;
@@ -1242,9 +1243,10 @@ window.addEventListener('DOMContentLoaded', async () => {
     updateRatesPreview(state.countyRates);
   }
   function closeRatesModal(){ ratesModal.classList.remove('open'); ratesModal.setAttribute('aria-hidden','true'); }
-  document.getElementById('importRatesBtn').addEventListener('click', openRatesModal);
-  document.getElementById('ratesClose').addEventListener('click', closeRatesModal);
-  document.getElementById('ratesCancel').addEventListener('click', closeRatesModal);
+  const importRatesBtn = document.getElementById('importRatesBtn');
+  if (importRatesBtn) importRatesBtn.addEventListener('click', openRatesModal);
+  const ratesCloseBtn = document.getElementById('ratesClose'); if (ratesCloseBtn) ratesCloseBtn.addEventListener('click', closeRatesModal);
+  const ratesCancelBtn = document.getElementById('ratesCancel'); if (ratesCancelBtn) ratesCancelBtn.addEventListener('click', closeRatesModal);
   document.getElementById('loadRatesSample').addEventListener('click', () => {
     const sampleTsv = 'County\tTotal Surtax Rate\nBrevard\t1.5%\nOrange\t0.5%\n';
     document.getElementById('ratesInput').value = sampleTsv;
@@ -1279,7 +1281,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     if (!Object.keys(counties).length) throw new Error('No county rows parsed');
     return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
   }
-  document.getElementById('ratesFile').addEventListener('change', async (e) => {
+  const ratesFileInput = document.getElementById('ratesFile');
+  if (ratesFileInput) ratesFileInput.addEventListener('change', async (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     try {
@@ -1385,7 +1388,8 @@ window.addEventListener('DOMContentLoaded', async () => {
     return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
   }
 
-  document.getElementById('saveRates').addEventListener('click', () => {
+  const saveRatesBtn = document.getElementById('saveRates');
+  if (saveRatesBtn) saveRatesBtn.addEventListener('click', () => {
     try {
       const txt = document.getElementById('ratesInput').value.trim();
       let parsed = state.pendingRatesImport;
