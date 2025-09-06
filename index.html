@@ -53,6 +53,7 @@
         <div class="panel-header">
           <h2>Calculator</h2>
           <div id="calcMessages" class="messages"></div>
+          <button id="clearCalc" class="btn small" title="Clear all inputs">Clear</button>
         </div>
         <form id="calcForm" action="#" class="stack" autocomplete="on">
 
@@ -103,6 +104,30 @@
             <div class="cell-value">
               <div id="govFeesList" class="fees-list"></div>
               <div class="fees-actions">
+                <select id="govFeePreset" class="preset-select small">
+                  <option value="">Presets…</option>
+                  <optgroup label="Registration &amp; Plate Fees">
+                    <option data-name="Car &lt; 2,500 lbs" value="14.50">Car &lt; 2,500 lbs — $14.50</option>
+                    <option data-name="2,500 &gt; Car &lt; 3,499 lbs" value="22.50">2,500 &gt; Car &lt; 3,499 lbs — $22.50</option>
+                    <option data-name="Car &gt; 3,500 lbs" value="32.50">Car &gt; 3,500 lbs — $32.50</option>
+                    <option data-name="Truck &lt; 5,000 lbs" value="32.50">Truck &lt; 5,000 lbs — $32.50</option>
+                    <option data-name="5,001 &gt; Truck &lt; 7,999 lbs" value="60.75">5,001 &gt; Truck &lt; 7,999 lbs — $60.75</option>
+                    <option data-name="Truck &gt; 8,000 lbs" value="86.00">Truck &gt; 8,000 lbs — $86.00</option>
+                  </optgroup>
+                  <optgroup label="Registration">
+                    <option data-name="Exempt (Weight &gt; 5k lbs)" value="0">Exempt (Weight &gt; 5k lbs) — $0.00</option>
+                    <option data-name="Initial Registration" value="225.00">Initial Registration — $225.00</option>
+                  </optgroup>
+                  <optgroup label="Tag Fees">
+                    <option data-name="Tag Transfer" value="10.00">Tag Transfer — $10.00</option>
+                    <option data-name="1-Yr Tag" value="28.00">1-Yr Tag — $28.00</option>
+                    <option data-name="2-Yr Tag" value="56.00">2-Yr Tag — $56.00</option>
+                  </optgroup>
+                  <optgroup label="Title Fees">
+                    <option data-name="Electronic Title" value="85.75">Electronic Title — $85.75</option>
+                    <option data-name="Paper Title" value="77.75">Paper Title — $77.75</option>
+                  </optgroup>
+                </select>
                 <button id="addGovFee" type="button" class="btn small">Add Fee</button>
                 <span class="spacer"></span>
                 <span>Total: <strong id="govFeesTotal">$0.00</strong></span>

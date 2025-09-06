@@ -127,6 +127,9 @@ input[type="checkbox"]{width:16px; height:16px}
 .fee-row .remove{background: transparent; border:1px solid var(--border); color: var(--muted); padding:8px 10px; border-radius:8px}
 .fees-actions{display:flex; align-items:center; gap:8px; margin-top:8px}
 .fees-actions .spacer{flex:1}
+/* Preset dropdown styling */
+.preset-select{ background:#1a2330; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:6px 8px }
+.preset-select.small{ font-size:12px; padding:6px 8px }
 
 .btn{background:#1a2330; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:8px 12px; cursor:pointer}
 .btn:hover{filter:brightness(1.1)}
@@ -135,6 +138,8 @@ input[type="checkbox"]{width:16px; height:16px}
 
 .messages{font-size:12px; color: var(--muted)}
 .messages .warn{color: var(--warn)}
+/* Center messages within panel header when extra actions present */
+#calc-panel .panel-header .messages{ flex: 1; text-align: center }
 
 .settings-grid{display:grid; grid-template-columns: 1fr 1fr; gap:14px}
 

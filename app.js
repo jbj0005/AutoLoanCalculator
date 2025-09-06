@@ -25,6 +25,18 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 const messagesEl = () => document.getElementById('calcMessages');
+let msgTimer = null;
+function showCalcMessage(text, kind = ''){
+  try {
+    const el = messagesEl();
+    if (!el) return;
+    el.textContent = text || '';
+    el.classList.remove('warn');
+    if (kind) el.classList.add(kind);
+    clearTimeout(msgTimer);
+    if (text){ msgTimer = setTimeout(() => { try { el.textContent = ''; el.classList.remove('warn'); } catch{} }, 4000); }
+  } catch {}
+}
 
 // Toggle placeholder styling on computed display elements
 function setReadyPlaceholder(el, isPlaceholder){
@@ -119,6 +131,28 @@ function parsePriceExpression(input, msrp){
   if (!s) return 0;
   const MSRP_VAL = Number(msrp) || 0;
 
+  // Shorthand: signed percent like "-6%" or "+2.5%" relative to MSRP
+  const mPctAdj = s.match(/^\s*([+\-])\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/);
+  if (mPctAdj && MSRP_VAL > 0){
+    const sign = mPctAdj[1];
+    const pct = parseFloat(mPctAdj[2]);
+    if (!isNaN(pct)){
+      const delta = MSRP_VAL * (pct/100);
+      return sign === '+' ? (MSRP_VAL + delta) : (MSRP_VAL - delta);
+    }
+  }
+
+  // Shorthand: if user types "+500" or "-7500" and an MSRP exists,
+  // treat it as MSRP plus/minus that amount.
+  const mAdj = s.match(/^\s*([+\-])\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\s*$/);
+  if (mAdj && MSRP_VAL > 0){
+    const sign = mAdj[1];
+    const val = parseCurrency(mAdj[2]);
+    if (!isNaN(val)){
+      return sign === '+' ? (MSRP_VAL + val) : (MSRP_VAL - val);
+    }
+  }
+
   // Pattern: <base> (+|-) <percent>%
   const mPct = s.match(/^\s*(msrp|[\d$,\.]+)\s*([+\-])\s*([\d.]+)\s*%\s*$/i);
   if (mPct){
@@ -153,6 +187,7 @@ function attachCurrencyFormatter(input){
     const n = parseCurrency(input.value);
     input.value = n ? formatCurrency(n) : '';
     computeAll();
+    scheduleSave();
   });
   input.addEventListener('input', () => computeAll());
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter'){ e.preventDefault(); input.blur(); } });
@@ -807,6 +842,10 @@ function closeVehicleModal(){
 }
 
 // --- Fees UI ---
+const STORAGE_KEY = 'calcStateV1';
+let saveTimer = null;
+function scheduleSave(){ try{ clearTimeout(saveTimer); }catch{} saveTimer = setTimeout(saveCalcState, 300); }
+
 function addFeeRow(name = '', amount = ''){
   const row = document.createElement('div');
   row.className = 'fee-row';
@@ -815,10 +854,16 @@ function addFeeRow(name = '', amount = ''){
     <input class=\"fee-amount\" type=\"text\" name=\"dealerFeeAmount[]\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
     <button type=\"button\" class=\"remove\">Remove</button>
   `;
-  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); });
+  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); scheduleSave(); });
   const amt = row.querySelector('.fee-amount');
   attachCurrencyFormatter(amt);
+  // Faster entry: Enter on name -> amount, Enter on amount -> add another row
+  const nameEl = row.querySelector('.fee-name');
+  if (nameEl){ nameEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); amt?.focus(); }}); }
+  if (amt){ amt.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addFeeRow(); }}); }
   $('#dealerFeesList').appendChild(row);
+  if (!name){ try { row.querySelector('.fee-name')?.focus(); } catch {} }
+  scheduleSave();
 }
 
 function addGovFeeRow(name = '', amount = ''){
@@ -829,10 +874,15 @@ function addGovFeeRow(name = '', amount = ''){
     <input class=\"fee-amount\" type=\"text\" name=\"govFeeAmount[]\" inputmode=\"decimal\" placeholder=\"e.g., $85\" value=\"${amount}\" />
     <button type=\"button\" class=\"remove\">Remove</button>
   `;
-  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); });
+  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); scheduleSave(); });
   const amt = row.querySelector('.fee-amount');
   attachCurrencyFormatter(amt);
+  const nameEl = row.querySelector('.fee-name');
+  if (nameEl){ nameEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); amt?.focus(); }}); }
+  if (amt){ amt.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addGovFeeRow(); }}); }
   $('#govFeesList').appendChild(row);
+  if (!name){ try { row.querySelector('.fee-name')?.focus(); } catch {} }
+  scheduleSave();
 }
 
 // --- Settings ---
@@ -885,11 +935,21 @@ window.addEventListener('DOMContentLoaded', async () => {
   const fp = document.getElementById('finalPrice');
   const getCurrentMsrp = () => (Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0);
   fp.addEventListener('blur', () => {
-    const n = parsePriceExpression(fp.value, getCurrentMsrp());
-    fp.value = n ? formatCurrency(n) : '';
+    const msrpNow = getCurrentMsrp();
+    const raw = (fp.value || '').trim();
+    const n = parsePriceExpression(raw, msrpNow);
+    // If no vehicle selected (no MSRP) and user typed a negative number, warn and clear
+    const direct = parseCurrency(raw);
+    if ((!msrpNow || msrpNow <= 0) && direct < 0){
+      showCalcMessage("Final Sale Price can't be a negative number", 'warn');
+      fp.value = '';
+    } else {
+      fp.value = n ? formatCurrency(n) : '';
+    }
     computeAll();
   });
   fp.addEventListener('input', () => computeAll());
+  fp.addEventListener('input', () => scheduleSave());
   fp.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); fp.blur(); }});
   // If no trade-in value, clear payoff dynamically
   const tradeEl = document.getElementById('tradeValue');
@@ -899,18 +959,39 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (payoffEl.value){ payoffEl.value = ''; }
     }
   });
+  tradeEl.addEventListener('input', () => scheduleSave());
+  payoffEl.addEventListener('input', () => scheduleSave());
 
   $('#apr').addEventListener('input', computeAll);
+  $('#apr').addEventListener('input', () => scheduleSave());
   $('#apr').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
   $('#term').addEventListener('input', computeAll);
+  $('#term').addEventListener('input', () => scheduleSave());
   $('#term').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
   $('#financeTF').addEventListener('change', computeAll);
+  $('#financeTF').addEventListener('change', () => scheduleSave());
 
   // Form submission handled later in a single place
 
   // Fees
   $('#addFee').addEventListener('click', (e) => { e.preventDefault(); addFeeRow(); });
   $('#addGovFee').addEventListener('click', (e) => { e.preventDefault(); addGovFeeRow(); });
+  try { document.getElementById('dealerFeesList').addEventListener('input', () => scheduleSave()); } catch {}
+  try { document.getElementById('govFeesList').addEventListener('input', () => scheduleSave()); } catch {}
+  const govPreset = document.getElementById('govFeePreset');
+  if (govPreset){
+    govPreset.addEventListener('change', (e) => {
+      const sel = e.target;
+      const opt = sel.selectedOptions && sel.selectedOptions[0];
+      if (!opt || !opt.value) return;
+      const name = opt.getAttribute('data-name') || (opt.textContent || '').trim();
+      const amt = formatCurrency(parseCurrency(opt.value));
+      addGovFeeRow(name, amt);
+      computeAll();
+      scheduleSave();
+      sel.value = '';
+    });
+  }
 
   // Supabase
   // Modal actions for Add/Update vehicle
@@ -1226,8 +1307,53 @@ window.addEventListener('DOMContentLoaded', async () => {
       updateDistanceUI();
       updateDbMetaUI();
     }
-  });
+});
 
+// --- Persistence ---
+function saveCalcState(){
+  try {
+    const data = {
+      finalPrice: document.getElementById('finalPrice').value || '',
+      tradeValue: document.getElementById('tradeValue').value || '',
+      loanPayoff: document.getElementById('loanPayoff').value || '',
+      cashDown: document.getElementById('cashDown').value || '',
+      apr: document.getElementById('apr').value || '',
+      term: document.getElementById('term').value || '',
+      financeTF: !!document.getElementById('financeTF').checked,
+      dealerFees: Array.from(document.querySelectorAll('#dealerFeesList .fee-row')).map(r => ({
+        name: r.querySelector('.fee-name')?.value || '',
+        amount: r.querySelector('.fee-amount')?.value || '',
+      })),
+      govFees: Array.from(document.querySelectorAll('#govFeesList .fee-row')).map(r => ({
+        name: r.querySelector('.fee-name')?.value || '',
+        amount: r.querySelector('.fee-amount')?.value || '',
+      })),
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function restoreCalcState(){
+  try {
+    const txt = localStorage.getItem(STORAGE_KEY);
+    if (!txt) return false;
+    const s = JSON.parse(txt);
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+    set('finalPrice', s.finalPrice || '');
+    set('tradeValue', s.tradeValue || '');
+    set('loanPayoff', s.loanPayoff || '');
+    set('cashDown', s.cashDown || '');
+    set('apr', s.apr || '');
+    set('term', s.term || '');
+    const fin = document.getElementById('financeTF'); if (fin) fin.checked = !!s.financeTF;
+    // Fees
+    document.getElementById('dealerFeesList').innerHTML = '';
+    (s.dealerFees || []).forEach(f => addFeeRow(f.name || '', f.amount || ''));
+    document.getElementById('govFeesList').innerHTML = '';
+    (s.govFees || []).forEach(f => addGovFeeRow(f.name || '', f.amount || ''));
+    return true;
+  } catch { return false; }
+}
   // Load Google Places Autocomplete if key provided (moved to global loadGoogleMaps)
   
 
@@ -1438,10 +1564,28 @@ window.addEventListener('DOMContentLoaded', async () => {
     el.innerHTML = html;
   }
 
-  // Initial state
-  // Start with one fee row to guide usage
-  addFeeRow();
-  addGovFeeRow();
+  // Clear / Reset button
+  const clearBtn = document.getElementById('clearCalc');
+  if (clearBtn){
+    clearBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const ids = ['finalPrice','tradeValue','loanPayoff','cashDown','apr','term'];
+      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+      const ftf = document.getElementById('financeTF'); if (ftf) ftf.checked = false;
+      document.getElementById('dealerFeesList').innerHTML = '';
+      document.getElementById('govFeesList').innerHTML = '';
+      addFeeRow();
+      addGovFeeRow();
+      localStorage.removeItem(STORAGE_KEY);
+      computeAll();
+    });
+  }
+
+  // Initial state: restore from storage if present; otherwise start with one blank row each
+  if (!restoreCalcState()){
+    addFeeRow();
+    addGovFeeRow();
+  }
   computeAll();
   // Recompute width initially and on resize
   computeCalcPanelWidth();
@@ -1456,6 +1600,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         document.activeElement.blur();
       }
       computeAll();
+      scheduleSave();
     });
   }
 
