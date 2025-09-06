@@ -101,6 +101,52 @@ function clearPageInert(){
   inertEls.forEach(el => el.removeAttribute('inert'));
 }
 
+// Load Google Maps JS and Places library with App Check token (global so Console/helpers can call it)
+async function loadGoogleMaps(){
+  // If Maps already present, ensure Places library is available
+  if (window.google?.maps){
+    try {
+      if (!window.google.maps.places && window.google.maps.importLibrary){
+        await window.google.maps.importLibrary('places');
+      }
+    } catch (e){ console.warn('Failed to import places library', e); }
+    return true;
+  }
+  if (!window.GMAPS_API_KEY) return true;
+  let tokenParam = '';
+  try {
+    const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
+    if (siteKey){
+      // Load reCAPTCHA Enterprise if not present
+      if (!window.grecaptcha || !window.grecaptcha.enterprise){
+        await new Promise((resolve, reject) => {
+          const s = document.createElement('script');
+          s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
+          s.async = true; s.defer = true;
+          s.onload = resolve; s.onerror = reject;
+          document.head.appendChild(s);
+        });
+      }
+      if (window.grecaptcha?.enterprise?.ready){
+        await new Promise(res => window.grecaptcha.enterprise.ready(res));
+        const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
+        if (tok) tokenParam = `&app_check_token=${encodeURIComponent(tok)}`;
+      }
+    }
+  } catch (e) {
+    console.warn('App Check token fetch failed; continuing without token', e);
+  }
+  // Load Maps JS with Places library
+  await new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async${tokenParam}`;
+    s.async = true; s.defer = true;
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+  return true;
+}
+
 function normalizeLocationFromGeo(geo){
   if (!geo) return '';
   const zipOut = geo.zip || '';
@@ -816,6 +862,8 @@ function computeCalcPanelWidth(){
 // --- Modal helpers ---
 async function ensureVehiclePAC(){
   try {
+    const vehLoad = document.getElementById('vehiclePacLoading');
+    if (vehLoad) vehLoad.style.display = 'block';
     if (document.getElementById('dbLocationPAC')) return;
     await loadGoogleMaps();
     if (!window.google?.maps?.places) return;
@@ -872,11 +920,12 @@ async function ensureVehiclePAC(){
       pac.addEventListener?.('place_changed', handlePlaceSelect);
       pac.addEventListener?.('change', handlePlaceSelect);
       pac.addEventListener?.('blur', handlePlaceSelect);
+      if (vehLoad) vehLoad.style.display = 'none';
     }
   } catch {}
 }
 
-function openVehicleModal(mode){
+async function openVehicleModal(mode){
   const modal = document.getElementById('vehicleModal');
   const title = document.getElementById('vehicleModalTitle');
   if (mode === 'add'){
@@ -901,11 +950,10 @@ function openVehicleModal(mode){
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
   try { setPageInert(modal); } catch {}
-  // Mount PAC lazily and focus
-  ensureVehiclePAC();
-  // focus first meaningful control
+  // Mount PAC lazily and focus (await to avoid showing legacy input first)
+  try { await ensureVehiclePAC(); } catch {}
   const focusEl = document.getElementById('dbLocationPAC') || document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
-  if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
+  if (focusEl && typeof focusEl.focus === 'function') setTimeout(() => focusEl.focus(), 0);
 }
 
 function closeVehicleModal(){
@@ -1050,6 +1098,8 @@ window.addEventListener('DOMContentLoaded', async () => {
   // Home Address modal (Places-like UX)
   async function ensureHomePAC(){
     try {
+      const homeLoad = document.getElementById('homePacLoading');
+      if (homeLoad) homeLoad.style.display = 'block';
       if (document.getElementById('homePAC')) return;
       await loadGoogleMaps();
       if (!window.google?.maps?.places) return;
@@ -1104,6 +1154,7 @@ window.addEventListener('DOMContentLoaded', async () => {
         pacHome.addEventListener?.('place_changed', handleHomeSelect);
         pacHome.addEventListener?.('change', handleHomeSelect);
         pacHome.addEventListener?.('blur', handleHomeSelect);
+        if (homeLoad) homeLoad.style.display = 'none';
         return;
       } else {
         // Fallback to legacy Autocomplete on visible input
@@ -1131,16 +1182,17 @@ window.addEventListener('DOMContentLoaded', async () => {
             state.pendingHomeGeo = { city, county, state_code, zip, lat, lon };
             try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
             const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
-            const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
-            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
-          });
+          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
+          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
+        });
         } catch (e){ console.warn('Legacy Home Autocomplete attach failed', e); }
+        if (homeLoad) homeLoad.style.display = 'none';
       }
     } catch {}
   }
 
   const homeModal = document.getElementById('homeModal');
-  const openHomeModal = () => {
+  const openHomeModal = async () => {
     const input = document.getElementById('homeInput');
     if (input){ input.value = state.homeAddress || ''; }
     const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
@@ -1151,7 +1203,7 @@ window.addEventListener('DOMContentLoaded', async () => {
       homeModal.classList.add('open');
       homeModal.setAttribute('aria-hidden','false');
       try { setPageInert(homeModal); } catch {}
-      ensureHomePAC();
+      try { await ensureHomePAC(); } catch {}
       const focusEl = document.getElementById('homePAC') || document.getElementById('homeInput');
       if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
     }
@@ -1337,51 +1389,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Load Google Places Autocomplete if key provided
-  async function loadGoogleMaps(){
-    // If Maps already present, ensure Places library is available
-    if (window.google?.maps){
-      try {
-        if (!window.google.maps.places && window.google.maps.importLibrary){
-          await window.google.maps.importLibrary('places');
-        }
-      } catch (e){ console.warn('Failed to import places library', e); }
-      return true;
-    }
-    if (!window.GMAPS_API_KEY) return true;
-    let tokenParam = '';
-    try {
-      const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
-      if (siteKey){
-        // Load reCAPTCHA Enterprise if not present
-        if (!window.grecaptcha || !window.grecaptcha.enterprise){
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
-            s.async = true; s.defer = true;
-            s.onload = resolve; s.onerror = reject;
-            document.head.appendChild(s);
-          });
-        }
-        if (window.grecaptcha?.enterprise?.ready){
-          await new Promise(res => window.grecaptcha.enterprise.ready(res));
-          const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
-          if (tok) tokenParam = `&app_check_token=${encodeURIComponent(tok)}`;
-        }
-      }
-    } catch (e) {
-      console.warn('App Check token fetch failed; continuing without token', e);
-    }
-    // Load Maps JS with Places library
-    await new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async${tokenParam}`;
-      s.async = true; s.defer = true;
-      s.onload = resolve; s.onerror = reject;
-      document.head.appendChild(s);
-    });
-    return true;
-  }
+  // Load Google Places Autocomplete if key provided (moved to global loadGoogleMaps)
   try {
     if (window.ENABLE_GOOGLE_PLACES === true){
       await loadGoogleMaps();

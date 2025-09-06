@@ -210,14 +210,15 @@
               <label for="dbMsrp">MSRP / Asking Price</label>
               <input id="dbMsrp" type="text" inputmode="decimal" placeholder="$83,000.00" />
             </div>
-            <div class="db-row">
-              <label for="dbLocation">Location</label>
-              <div>
+          <div class="db-row">
+            <label for="dbLocation">Location</label>
+            <div>
               <input id="dbLocation" type="text" placeholder="City, State or ZIP" autocomplete="off" />
               <div class="note">County: <span id="dbLocationCounty">—</span> • ZIP: <span id="dbLocationZip">—</span> • <span id="dbLocationCoords">—</span></div>
+              <div class="hint" id="vehiclePacLoading" style="display:none">Loading Google…</div>
               <div class="hint" id="geoBrand" style="display:none">Geocoding by Google</div>
-              </div>
             </div>
+          </div>
         </div>
         <div class="modal-footer">
           <button id="saveVehicle" class="btn primary">Save</button>
@@ -239,6 +240,7 @@
             <div>
               <input id="homeInput" type="text" placeholder="City, State or ZIP" autocomplete="off" />
               <div class="note">County: <span id="homeCounty">—</span> • ZIP: <span id="homeZip">—</span> • <span id="homeCoords">—</span></div>
+              <div class="hint" id="homePacLoading" style="display:none">Loading Google…</div>
               <div class="hint" id="homeBrand" style="display:none">Geocoding by Google</div>
             </div>
           </div>
