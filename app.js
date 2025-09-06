@@ -9,19 +9,13 @@ const COUNTY_DATA_URL = "data/county_tax_fl.json";
 // --- Global State ---
 const state = {
   countyRates: null,
-  homeAddress: null,
-  homeCoords: null,
-  homeZip: null,
-  homeCity: null,
-  homeCounty: null,
-  vehicleCoords: null,
-  vehicleCounty: null,
+  
   vehicleZip: null,
   vehicleCity: null,
   countyRateUsed: null,
   supabase: null,
   selectedVehicle: null,
-  dbLocationGeo: null,
+  
   pendingRatesImport: null,
   pendingHomeGeo: null
 };
@@ -101,51 +95,7 @@ function clearPageInert(){
   inertEls.forEach(el => el.removeAttribute('inert'));
 }
 
-// Load Google Maps JS and Places library with App Check token (global so Console/helpers can call it)
-async function loadGoogleMaps(){
-  // If Maps already present, ensure Places library is available
-  if (window.google?.maps){
-    try {
-      if (!window.google.maps.places && window.google.maps.importLibrary){
-        await window.google.maps.importLibrary('places');
-      }
-    } catch (e){ console.warn('Failed to import places library', e); }
-    return true;
-  }
-  if (!window.GMAPS_API_KEY) return true;
-  let tokenParam = '';
-  try {
-    const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
-    if (siteKey){
-      // Load reCAPTCHA Enterprise if not present
-      if (!window.grecaptcha || !window.grecaptcha.enterprise){
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
-          s.async = true; s.defer = true;
-          s.onload = resolve; s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      if (window.grecaptcha?.enterprise?.ready){
-        await new Promise(res => window.grecaptcha.enterprise.ready(res));
-        const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
-        if (tok) tokenParam = `&app_check_token=${encodeURIComponent(tok)}`;
-      }
-    }
-  } catch (e) {
-    console.warn('App Check token fetch failed; continuing without token', e);
-  }
-  // Load Maps JS with Places library
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(window.GMAPS_API_KEY)}&libraries=places&v=weekly&loading=async${tokenParam}`;
-    s.async = true; s.defer = true;
-    s.onload = resolve; s.onerror = reject;
-    document.head.appendChild(s);
-  });
-  return true;
-}
+// Google integrations removed
 
 function normalizeLocationFromGeo(geo){
   if (!geo) return '';
@@ -326,47 +276,17 @@ function haversineMi(a, b){
   return R * c;
 }
 
+// Removed: home address geocoding
 async function ensureHomeCoords(){
   const addr = state.homeAddress || HOME_ADDRESS_DEFAULT;
   if (!addr){
-    // No home address set; skip geocoding and keep distance hidden
+    // No home address set
     return;
   }
-  const cached = localStorage.getItem('homeCoords');
-  if (cached){
-    try { state.homeCoords = JSON.parse(cached); } catch {}
-  }
-  if (!state.homeCoords){
-    try {
-      const res = await geocode(addr);
-      state.homeCoords = { lat: res.lat, lon: res.lon };
-      state.homeZip = res.zip || null;
-      state.homeCity = res.city || null;
-      localStorage.setItem('homeCoords', JSON.stringify(state.homeCoords));
-    } catch(e){
-      console.warn('Home geocode failed', e);
-    }
-  }
-  // Try to keep homeZip in sync if missing
-  if (addr && (!state.homeZip || !state.homeCity)){
-    try { const res = await geocode(addr); state.homeZip = state.homeZip || res.zip || null; state.homeCity = state.homeCity || res.city || null; } catch{}
-  }
+  return;
 }
 
-async function updateVehicleGeodata(){
-  const loc = (state.selectedVehicle?.location || '').trim();
-  if (!loc) { state.vehicleCoords = null; state.vehicleCounty = null; return; }
-  try {
-    const res = await geocode(loc);
-    state.vehicleCoords = { lat: res.lat, lon: res.lon };
-    state.vehicleCounty = res.county;
-    state.vehicleZip = res.zip || null;
-    state.vehicleCity = res.city || null;
-  } catch(e){
-    // Keep previous values on failure to avoid wiping known data
-    console.warn('Vehicle geocode failed; preserving existing geo', e);
-  }
-}
+// Removed vehicle geodata updates
 
 // --- Supabase ---
 function initSupabase(){
@@ -388,15 +308,11 @@ async function loadVehicles(){
   if (!state.supabase){ selectEl.innerHTML = '<option value="">Select Vehicle</option>'; return; }
   const { data, error } = await state.supabase
     .from('vehicles')
-    .select('id,name,msrp,location,latitude,longitude,county')
+    .select('id,name,msrp')
     .order('name');
   if (error){ console.warn(error); return; }
   selectEl.innerHTML = '<option value="">Select Vehicle</option>' +
-    data.map(v => {
-      const locStr = v.location || '';
-      const cityStr = (locStr.split(',')[0] || '').trim();
-      return `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}" data-location="${encodeURIComponent(locStr)}" data-city="${encodeURIComponent(cityStr)}" data-lat="${v.latitude ?? ''}" data-lon="${v.longitude ?? ''}" data-county="${encodeURIComponent(v.county || '')}">${v.name}</option>`;
-    }).join('');
+    data.map(v => `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}">${v.name}</option>`).join('');
 }
 
 async function saveVehicle(){
@@ -404,51 +320,25 @@ async function saveVehicle(){
   let selected = $('#vehicleSelect').value || null;
   const name = $('#dbVehicleName').value.trim();
   const msrp = parseCurrency($('#dbMsrp').value);
-  const location = $('#dbLocation').value.trim();
+  
   if (!name){ alert('Enter a vehicle name'); return; }
-  let geo = state.dbLocationGeo;
-  if (!geo && location){
-    try { geo = await geocode(location); } catch { geo = null; }
-  }
-  // Improve geo: if we have coords but missing county, try reverse geocode
-  if (geo && (geo.county == null || geo.county === '—') && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
-    try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
-  }
-  // Normalize location string if we have structured geo
-  let locationNorm = location;
-  if (geo){
-    const norm = normalizeLocationFromGeo(geo);
-    if (norm) locationNorm = norm;
-  }
+  
 
   if (selected){
     const { error } = await state.supabase.from('vehicles')
-      .update({ name, msrp, location: locationNorm, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
+      .update({ name, msrp })
       .eq('id', selected);
     if (error){ alert('Update failed: ' + error.message); return; }
     // Reflect new location immediately in UI
-    if (state.selectedVehicle && state.selectedVehicle.id === selected){
-      state.selectedVehicle.location = locationNorm;
-      if (geo && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
-        state.vehicleCoords = { lat: Number(geo.lat), lon: Number(geo.lon) };
-      }
-      if (geo && geo.county){ state.vehicleCounty = geo.county; }
-      if (geo && geo.city){ state.vehicleCity = geo.city; }
-      if (geo && geo.zip){ state.vehicleZip = geo.zip; }
-      // Only re-geocode after save if we didn't have a structured geo
-      if (!geo){ try { await updateVehicleGeodata(); } catch {} }
-      updateDistanceUI();
-      updateDbMetaUI();
-      computeAll();
-    }
+    if (state.selectedVehicle && state.selectedVehicle.id === selected){ state.selectedVehicle.name = name; state.selectedVehicle.msrp = msrp; computeAll(); }
   } else {
     const { data, error } = await state.supabase.from('vehicles')
-      .insert({ name, msrp, location: locationNorm, latitude: geo?.lat ?? null, longitude: geo?.lon ?? null, county: geo?.county ?? null })
+      .insert({ name, msrp })
       .select('id');
     if (error){ alert('Insert failed: ' + error.message); return; }
     if (data && data[0]?.id){ selected = String(data[0].id); }
   }
-  state.dbLocationGeo = null;
+  
   await loadVehicles();
   if (selected){
     $('#vehicleSelect').value = String(selected);
@@ -466,7 +356,7 @@ async function deleteVehicle(){
   // Clear selection and calculator
   $('#vehicleSelect').value = '';
   state.selectedVehicle = null;
-  state.vehicleCoords = null; state.vehicleCounty = null; state.vehicleCity = null; state.vehicleZip = null;
+  
   const summaryVeh = document.getElementById('summaryVehicle'); if (summaryVeh) summaryVeh.textContent = '—';
   const summaryMsrp = document.getElementById('summaryMsrp'); if (summaryMsrp) summaryMsrp.textContent = '—';
   const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
@@ -482,33 +372,24 @@ function onVehicleSelected(){
   if (!opt || !opt.value){
     // Clear DB-referenced calculator cells and related state
     state.selectedVehicle = null;
-    state.vehicleCoords = null;
-    state.vehicleCounty = null;
-    state.vehicleZip = null;
-    state.vehicleCity = null;
+    
     const vNameEl = document.getElementById('summaryVehicle');
     const msrpEl = document.getElementById('summaryMsrp');
     if (vNameEl) vNameEl.textContent = '—';
     if (msrpEl) msrpEl.textContent = '—';
-    const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
-    const countyEl = document.getElementById('dbCounty'); if (countyEl) countyEl.textContent = '—';
-    const distEl = document.getElementById('dbDistance'); if (distEl) distEl.textContent = '—';
-    updateDistanceUI();
-    updateDbMetaUI();
+    
     computeAll();
     return;
   }
   const name = decodeURIComponent(opt.dataset.name || '');
   const msrp = opt.dataset.msrp || '';
-  const location = decodeURIComponent(opt.dataset.location || '');
-  const dataCity = decodeURIComponent(opt.dataset.city || '');
-  state.selectedVehicle = { id: opt.value, name, msrp: parseCurrency(msrp), location };
+  state.selectedVehicle = { id: opt.value, name, msrp: parseCurrency(msrp) };
   const summaryVeh2 = document.getElementById('summaryVehicle'); if (summaryVeh2) summaryVeh2.textContent = name || '—';
   const summaryMsrp2 = document.getElementById('summaryMsrp'); if (summaryMsrp2) summaryMsrp2.textContent = msrp ? formatCurrency(parseCurrency(msrp)) : '—';
   // Reflect selection in DB form for convenient updates
   $('#dbVehicleName').value = name || '';
   $('#dbMsrp').value = msrp ? formatCurrency(parseCurrency(msrp)) : '';
-  $('#dbLocation').value = location || '';
+  
   // If Final Sale Price is blank/zero, auto-fill MSRP for convenience
   const fpEl = document.getElementById('finalPrice');
   if (fpEl){
@@ -518,19 +399,7 @@ function onVehicleSelected(){
       fpEl.value = formatCurrency(msNum);
     }
   }
-  // Prefer stored coords/county if available
-  const lat = parseFloat(opt.dataset.lat || '');
-  const lon = parseFloat(opt.dataset.lon || '');
-  const county = decodeURIComponent(opt.dataset.county || '');
-  if (!Number.isNaN(lat) && !Number.isNaN(lon)){
-    state.vehicleCoords = { lat, lon };
-  } else {
-    state.vehicleCoords = null;
-  }
-  state.vehicleCounty = county || null;
-  // Hydrate city from dataset or parse from location string
-  state.vehicleCity = dataCity || (location ? (location.split(',')[0] || '').trim() : null) || state.vehicleCity || null;
-  updateVehicleGeodata().then(() => { updateDistanceUI(); updateDbMetaUI(); computeAll(); });
+  computeAll();
 }
 
 // --- Core Calculations ---
@@ -592,25 +461,8 @@ function computeAll(){
     .map(i => parseCurrency(i.value)).reduce((a,b)=>a+b,0);
   $('#govFeesTotal').textContent = formatCurrency(govFeesTotal);
 
-  // County + Taxes
-  let countyName = state.vehicleCounty || '';
-  let countyRateSource = 'lookup';
-  let countyRate;
-  const hasVehicle = !!state.selectedVehicle;
-  if (hasVehicle){
-    if (countyName){
-      countyRate = getCountyRate(countyName).rate;
-      countyRateSource = 'lookup';
-    } else {
-      // No county resolved; fall back to DEFAULT in table, do not prompt
-      countyRate = getCountyRate('').rate;
-      countyRateSource = 'default';
-    }
-  } else {
-    // No vehicle selected: use DEFAULT county rate from table; no prompts
-    countyRate = getCountyRate('').rate;
-    countyRateSource = 'default';
-  }
+  // County + Taxes (default county only)
+  let countyRate = getCountyRate('').rate;
   state.countyRateUsed = countyRate;
 
   const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
@@ -630,15 +482,7 @@ function computeAll(){
   const trn = document.getElementById('taxesRatesNote');
   if (trn){
     const cPct = (countyRate*100).toFixed(2) + '%';
-    if (state.selectedVehicle){
-      if (countyName){
-        trn.textContent = `County: ${countyName} - ${cPct}`;
-      } else {
-        trn.textContent = `County: Default - ${cPct}`;
-      }
-    } else {
-      trn.textContent = `County: Default - ${cPct}`;
-    }
+    trn.textContent = `County: Default - ${cPct}`;
   }
   // Tax savings with trade-in
   const noteWith = document.getElementById('tradeSavingsWith');
@@ -695,9 +539,6 @@ function computeAll(){
   const pdEl = document.getElementById('paymentDelta');
   if (amountFinanced && term){ setReadyPlaceholder(pdEl, false); pdEl.textContent = `${formatCurrency(delta)}/mo`; } else { setReadyPlaceholder(pdEl, true); }
 
-  // Distance
-  updateDistanceUI();
-  updateDbMetaUI();
   computeCalcPanelWidth();
 }
 
@@ -861,14 +702,14 @@ function computeCalcPanelWidth(){
 
 // --- Modal helpers ---
 async function ensureVehiclePAC(){
+  const vehLoad = document.getElementById('vehiclePacLoading');
+  if (vehLoad) vehLoad.style.display = 'block';
   try {
-    const vehLoad = document.getElementById('vehiclePacLoading');
-    if (vehLoad) vehLoad.style.display = 'block';
-    if (document.getElementById('dbLocationPAC')) return;
+    if (document.getElementById('dbLocationPAC')) return true;
     await loadGoogleMaps();
-    if (!window.google?.maps?.places) return;
+    if (!window.google?.maps?.places) return false;
     const locInput = document.getElementById('dbLocation');
-    if (!locInput || !locInput.parentElement) return;
+    if (!locInput || !locInput.parentElement) return false;
     if (google.maps.places.PlaceAutocompleteElement){
       const pac = new google.maps.places.PlaceAutocompleteElement();
       pac.id = 'dbLocationPAC'; pac.style.width = '100%';
@@ -920,9 +761,15 @@ async function ensureVehiclePAC(){
       pac.addEventListener?.('place_changed', handlePlaceSelect);
       pac.addEventListener?.('change', handlePlaceSelect);
       pac.addEventListener?.('blur', handlePlaceSelect);
-      if (vehLoad) vehLoad.style.display = 'none';
+      return true;
     }
-  } catch {}
+    return false;
+  } catch (e) {
+    console.warn('ensureVehiclePAC failed', e);
+    return false;
+  } finally {
+    if (vehLoad) vehLoad.style.display = 'none';
+  }
 }
 
 async function openVehicleModal(mode){
@@ -934,10 +781,7 @@ async function openVehicleModal(mode){
     $('#vehicleSelect').value = '';
     $('#dbVehicleName').value = '';
     $('#dbMsrp').value = '';
-    $('#dbLocation').value = '';
-    $('#dbLocationCounty').textContent = '—';
-    $('#dbLocationCoords').textContent = '—';
-    state.dbLocationGeo = null;
+    
   } else {
     title.textContent = 'Update Vehicle';
     if (!$('#vehicleSelect').value){
@@ -950,9 +794,7 @@ async function openVehicleModal(mode){
   modal.classList.add('open');
   modal.setAttribute('aria-hidden', 'false');
   try { setPageInert(modal); } catch {}
-  // Mount PAC lazily and focus (await to avoid showing legacy input first)
-  try { await ensureVehiclePAC(); } catch {}
-  const focusEl = document.getElementById('dbLocationPAC') || document.getElementById('dbLocation') || document.getElementById('dbVehicleName');
+  const focusEl = document.getElementById('dbVehicleName');
   if (focusEl && typeof focusEl.focus === 'function') setTimeout(() => focusEl.focus(), 0);
 }
 
@@ -1390,74 +1232,7 @@ window.addEventListener('DOMContentLoaded', async () => {
   });
 
   // Load Google Places Autocomplete if key provided (moved to global loadGoogleMaps)
-  try {
-    if (window.ENABLE_GOOGLE_PLACES === true){
-      await loadGoogleMaps();
-      const brand = document.getElementById('geoBrand'); if (brand) brand.style.display = 'block';
-      // Home input Places Autocomplete
-      const homeInput = document.getElementById('homeInput');
-      if (window.google?.maps?.places && homeInput){
-        if (google.maps.places.PlaceAutocompleteElement){
-          try {
-            const pacHome = new google.maps.places.PlaceAutocompleteElement();
-            pacHome.id = 'homePAC'; pacHome.style.width = '100%';
-            homeInput.parentElement.insertBefore(pacHome, homeInput);
-            homeInput.style.display = 'none';
-            const handleHomeSelect = async () => {
-              const text = pacHome.value || '';
-              if (!text.trim()) return;
-              try {
-                const res = await geocode(text);
-                state.pendingHomeGeo = { ...res };
-                try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) pacHome.value = norm; } catch {}
-                const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = res.county || '—';
-                const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = res.zip || '—';
-                const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(res.lat, res.lon);
-              } catch {}
-            };
-            pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
-            pacHome.addEventListener?.('place_changed', handleHomeSelect);
-          } catch (e) {
-            console.warn('Home PAC element init failed; falling back to legacy Autocomplete', e);
-          }
-        }
-        if (!document.getElementById('homePAC')) try {
-          const acHome = new google.maps.places.Autocomplete(homeInput, {
-            fields: ['address_components','geometry','name'],
-            componentRestrictions: { country: 'us' }
-          });
-          acHome.addListener('place_changed', async () => {
-            const p = acHome.getPlace();
-            if (!p || !p.address_components) return;
-            const get = (type, short=false) => {
-              const c = p.address_components.find(ac => ac.types.includes(type));
-              return c ? (short ? c.short_name : c.long_name) : null;
-            };
-            const city = get('locality') || get('postal_town') || get('sublocality');
-            const county = get('administrative_area_level_2');
-            const state_code = get('administrative_area_level_1', true);
-            const zip = get('postal_code');
-            const lat = p.geometry?.location?.lat?.() ?? null;
-            const lon = p.geometry?.location?.lng?.() ?? null;
-            state.pendingHomeGeo = { city, county, state_code, zip, lat, lon };
-            // Normalize visible input
-            try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
-            const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
-            const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
-            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
-            const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
-          });
-          const brand = document.getElementById('homeBrand'); if (brand) brand.style.display = 'block';
-        } catch (e) {
-          const brand = document.getElementById('homeBrand');
-          if (brand){ brand.style.display = 'block'; brand.textContent = 'Autocomplete disabled (provider error)'; }
-        }
-      }
-    } else {
-      const brand = document.getElementById('geoBrand');
-      if (brand){ brand.style.display = 'block'; brand.textContent = 'Geocoding input: manual (Autocomplete off)'; }
-    }
-  } catch {}
+  
 
   // County Rates import modal
   const ratesModal = document.getElementById('ratesModal');

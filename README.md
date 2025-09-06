@@ -1,12 +1,12 @@
-# Auto Loan Calculator (GitHub Pages)
+# Auto Loan Calculator (GitHub Pages) — v0.2.0
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 
-Mobile-friendly auto loan calculator with optional Supabase-backed vehicle list. Designed with an Excel-like, 8-column paired layout that adapts to small screens.
+Mobile-friendly auto loan calculator with an optional Supabase-backed vehicle list (Name + MSRP only). Designed with an Excel-like layout that adapts to small screens.
 
 Live-ready for GitHub Pages: static HTML/CSS/JS only.
 
-## Features
+## Features (v0.2.0)
 
 - Excel-style 8-column paired layout (labels + values)
 - Savings vs. MSRP, trade-in equity (positive/negative)
@@ -16,8 +16,7 @@ Live-ready for GitHub Pages: static HTML/CSS/JS only.
 - “Finance Taxes & Fees?” option rolls them into loan amount
 - Cash down input; dynamic payment calculation (PMT)
 - 0% APR reference payment (faint)
-- Vehicle database (Supabase): save/load vehicles with name, MSRP, location
-- Distance-from-home calculation via light geocoding (Nominatim)
+- Vehicle database (Supabase): save/load vehicles with Name and MSRP only
 
 ## Quick Start (Local)
 
@@ -43,11 +42,6 @@ create table public.vehicles (
   id bigint generated always as identity primary key,
   name text not null,
   msrp numeric,
-  price numeric,
-  location text,
-  latitude double precision,
-  longitude double precision,
-  county text,
   inserted_at timestamptz default now()
 );
 
@@ -75,6 +69,8 @@ window.SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 
 5. In the app, use the Vehicle Database section to save/load vehicles.
 
+Note: As of v0.2.0, all location/geocoding and distance features were removed to focus strictly on calculator functionality.
+
 ## County Tax Rates
 
 - File: `data/county_tax_fl.json`
@@ -87,17 +83,14 @@ window.SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
 }
 ```
 
-- Defaults to 1% (first $5,000) if county is unknown and shows: "Rate Unknown - Default 1% Used".
+- Defaults to 1% (first $5,000) if county is unknown.
 - Update this file as rates change or expand with more counties for offline accuracy.
 
-## Distance From Home
+## Removed in v0.2.0
 
-- Optionally set your Home ZIP or full address using the "Update Home Address" button in the Vehicle card.
-- The address is geocoded and cached locally in your browser; clear or update it anytime.
-- Vehicle location is geocoded when you type in the modal or when saving a vehicle.
-- Distance uses the Haversine formula (great-circle distance).
-
-Note: Geocoding uses OpenStreetMap Nominatim for light, personal use. For heavier usage, bring your own geocoding provider + key.
+- All Google/Geocoding/App Check code
+- Home Address modal and distance calculation
+- Vehicle location/city/county fields and logic
 
 ## Calculation Details
 
@@ -121,7 +114,7 @@ If you want the exact formula you described strictly (ignoring positive equity i
 
 - `index.html` – UI layout and elements
 - `styles.css` – Mobile-first styling
-- `app.js` – Logic: parsing, math, geocoding, Supabase, UI
+- `app.js` – Logic: parsing, math, Supabase, UI (geocoding removed)
 - `config.js` – Supabase URL and anon key (copy from `config.example.js`)
 - `data/county_tax_fl.json` – Offline county rates
 

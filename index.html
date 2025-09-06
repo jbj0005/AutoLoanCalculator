@@ -7,8 +7,7 @@
     <link rel="icon" type="image/png" href="favicon.png" />
     <link rel="apple-touch-icon" href="favicon.png" />
     <link rel="stylesheet" href="styles.css" />
-    <!-- reCAPTCHA Enterprise for App Check (loads early); also loaded on-demand in app.js if missing -->
-    <script defer src="https://www.google.com/recaptcha/enterprise.js?render=6Lchor8rAAAAABVDVSLH8_lytIn0zBt2P9CxF6M5"></script>
+    
     <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script defer src="app.js"></script>
@@ -19,7 +18,7 @@
       <h1>Brandon's Auto Loan Calculator</h1>
       <div class="header-pills">
         <div id="supabase-status" class="status warn">Supabase not configured</div>
-        <div id="version" class="pill version">v0.1.0</div>
+        <div id="version" class="pill version">v0.2.0</div>
       </div>
     </header>
 
@@ -27,11 +26,6 @@
       <section class="panel" id="db-panel">
         <div class="panel-header">
           <h2>Vehicle Database</h2>
-          <div class="header-actions">
-            <button id="addVehicleBtn" class="btn">Add</button>
-            <button id="updateVehicleBtn" class="btn">Update</button>
-            <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
-          </div>
         </div>
         <div class="db-row vehicles-row">
           <label for="vehicleSelect">Saved Vehicles</label>
@@ -41,16 +35,12 @@
             </select>
           </div>
         </div>
-        <div class="db-meta">
-          <div>City: <span id="dbCity">—</span></div>
-          <div>County: <span id="dbCounty">—</span></div>
-          <div>Distance: <span id="dbDistance">—</span></div>
+        <div class="db-actions">
+          <button id="addVehicleBtn" class="btn">Add</button>
+          <button id="updateVehicleBtn" class="btn">Update</button>
+          <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
         </div>
-        <div class="db-home note">Home: <span id="dbHomeAddress">—</span></div>
-        <div class="db-meta-actions">
-          <button id="updateHomeBtn" class="btn small">Update Home Address</button>
-          <button id="importRatesBtn" class="btn small">Import County Rates</button>
-        </div>
+        
       </section>
 
       <!-- Current Vehicle Summary -->
@@ -210,15 +200,7 @@
               <label for="dbMsrp">MSRP / Asking Price</label>
               <input id="dbMsrp" type="text" inputmode="decimal" placeholder="$83,000.00" />
             </div>
-          <div class="db-row">
-            <label for="dbLocation">Location</label>
-            <div>
-              <input id="dbLocation" type="text" placeholder="City, State or ZIP" autocomplete="off" />
-              <div class="note">County: <span id="dbLocationCounty">—</span> • ZIP: <span id="dbLocationZip">—</span> • <span id="dbLocationCoords">—</span></div>
-              <div class="hint" id="vehiclePacLoading" style="display:none">Loading Google…</div>
-              <div class="hint" id="geoBrand" style="display:none">Geocoding by Google</div>
-            </div>
-          </div>
+          
         </div>
         <div class="modal-footer">
           <button id="saveVehicle" class="btn primary">Save</button>
@@ -227,30 +209,7 @@
       </div>
     </div>
 
-    <!-- Home Address Modal -->
-    <div id="homeModal" class="modal" aria-hidden="true">
-      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="homeModalTitle">
-        <div class="modal-header">
-          <h3 id="homeModalTitle">Home Address</h3>
-          <button id="homeClose" class="btn small" aria-label="Close">Close</button>
-        </div>
-        <div class="modal-body">
-          <div class="db-row">
-            <label for="homeInput">Home</label>
-            <div>
-              <input id="homeInput" type="text" placeholder="City, State or ZIP" autocomplete="off" />
-              <div class="note">County: <span id="homeCounty">—</span> • ZIP: <span id="homeZip">—</span> • <span id="homeCoords">—</span></div>
-              <div class="hint" id="homePacLoading" style="display:none">Loading Google…</div>
-              <div class="hint" id="homeBrand" style="display:none">Geocoding by Google</div>
-            </div>
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button id="homeSave" class="btn primary">Save</button>
-          <button id="homeCancel" class="btn">Cancel</button>
-        </div>
-      </div>
-    </div>
+    
 
     <!-- County Rates Modal -->
     <div id="ratesModal" class="modal" aria-hidden="true">
