@@ -715,11 +715,56 @@ function computeCalcPanelWidth(){
   }
   measurer.remove();
 
-  // Add padding/borders/suffix allowance (~120px), clamp to viewport
+  // Measure fee rows combined columns so long names don't clip on wide screens
+  let feeMax = 0;
+  try {
+    const feeRows = document.querySelectorAll('#dealerFeesList .fee-row, #govFeesList .fee-row');
+    const getTextWidth = (el) => {
+      const cs = window.getComputedStyle(el);
+      const sample = document.createElement('span');
+      sample.style.position = 'absolute';
+      sample.style.visibility = 'hidden';
+      sample.style.whiteSpace = 'pre';
+      sample.style.fontFamily = cs.fontFamily;
+      sample.style.fontSize = cs.fontSize;
+      sample.style.fontWeight = cs.fontWeight;
+      sample.style.letterSpacing = cs.letterSpacing;
+      sample.textContent = (el.value || el.placeholder || el.textContent || '');
+      document.body.appendChild(sample);
+      const w = sample.getBoundingClientRect().width;
+      sample.remove();
+      return w;
+    };
+    let gap = 8; // from CSS
+    const anyRow = document.querySelector('.fee-row');
+    if (anyRow){
+      const gcs = window.getComputedStyle(anyRow);
+      const g = parseFloat(gcs.columnGap);
+      if (!Number.isNaN(g)) gap = g;
+    }
+    // Estimate remove button width dynamically
+    let removeW = 70;
+    const anyBtn = document.querySelector('.fee-row .remove');
+    if (anyBtn){
+      const w = getTextWidth(anyBtn) + 24; // add padding
+      if (w > removeW) removeW = w;
+    }
+    const amtCol = 140 + 24; // fixed column + padding
+    const namePad = 24; // name input padding
+    feeRows.forEach(row => {
+      const nameInput = row.querySelector('input.fee-name');
+      if (!nameInput) return;
+      const nameW = getTextWidth(nameInput) + namePad;
+      const w = nameW + amtCol + removeW + (gap * 2);
+      if (w > feeMax) feeMax = w;
+    });
+  } catch {}
+
+  // Add padding/borders/suffix allowance, clamp to viewport
   const extra = 140; // cell + input paddings and term suffix
   const desired = Math.ceil(maxText + extra);
   const desiredTrade = tradeSum ? Math.ceil(tradeSum + 40) : 0; // add small buffer
-  const desiredAll = Math.max(desired, desiredTrade);
+  const desiredAll = Math.max(desired, desiredTrade, Math.ceil(feeMax));
   const min = 380;
   const vw = Math.max(320, window.innerWidth - 32);
   const finalW = Math.min(vw, Math.max(min, desiredAll));
