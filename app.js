@@ -872,36 +872,6 @@ async function ensureVehiclePAC(){
       pac.addEventListener?.('place_changed', handlePlaceSelect);
       pac.addEventListener?.('change', handlePlaceSelect);
       pac.addEventListener?.('blur', handlePlaceSelect);
-    } else {
-      // Legacy autocomplete on visible input
-      const ac = new google.maps.places.Autocomplete(locInput, {
-        fields: ['address_components','geometry','name'],
-        componentRestrictions: { country: 'us' }
-      });
-      ac.addListener('place_changed', async () => {
-        const p = ac.getPlace();
-        if (!p || !p.address_components) return;
-        const get = (type, short=false) => {
-          const c = p.address_components.find(ac => ac.types.includes(type));
-          return c ? (short ? c.short_name : c.long_name) : null;
-        };
-        let city = get('locality') || get('postal_town') || get('sublocality');
-        let county = get('administrative_area_level_2');
-        const state_code = get('administrative_area_level_1', true);
-        const zip = get('postal_code');
-        let lat = p.geometry?.location?.lat?.() ?? null;
-        let lon = p.geometry?.location?.lng?.() ?? null;
-        if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
-          try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; city = city || rev.city; } catch {}
-        }
-        state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
-        document.getElementById('dbLocationCounty').textContent = county || '—';
-        document.getElementById('dbLocationZip').textContent = zip || '—';
-        document.getElementById('dbLocationCoords').textContent = fmtCoords(lat, lon);
-        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
-        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
-        updateDistanceUI(); updateDbMetaUI();
-      });
     }
   } catch {}
 }

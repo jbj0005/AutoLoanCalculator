@@ -10,7 +10,7 @@ window.RECAPTCHA_ENTERPRISE_SITE_KEY = "6Lchor8rAAAAABVDVSLH8_lytIn0zBt2P9CxF6M5
 
 // Feature toggles (set to true to enable)
 // Disable Google Places Autocomplete by default to avoid input issues in restricted networks.
-window.ENABLE_GOOGLE_PLACES = true;
+window.ENABLE_GOOGLE_PLACES = false; // PAC mounts lazily; disable eager attach/legacy fallback
 // Allow geocoding via Google REST on blur/save; set false to fully disable network geocoding
 window.ENABLE_GOOGLE_GEOCODING = true;
 // Avoid geocoding on each keystroke; set true to re-enable live lookup as you type
