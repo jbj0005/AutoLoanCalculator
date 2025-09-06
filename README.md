@@ -1,4 +1,4 @@
-# Auto Loan Calculator (GitHub Pages) — v0.2.1
+# Auto Loan Calculator (GitHub Pages) — v0.2.2
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 
@@ -94,6 +94,14 @@ Note: As of v0.2.0, all location/geocoding and distance features were removed to
 - Fix: Ensure `config.js` loads before `app.js` so Supabase initialization shows Connected.
 
 See full history in `CHANGELOG.md`.
+
+## Releasing
+- Prepare notes (optional): add `RELEASE_NOTES/vX.Y.Z.md`.
+- Bump and commit (no tag): `scripts/release.sh v0.2.2`
+- Bump and tag (auto-creates GitHub Release via workflow): `scripts/release.sh v0.2.2 --tag`
+  - This pushes the commit and tag to `origin`.
+  - The Release workflow will publish the Release using your notes if present.
+  - The Changelog workflow will update `CHANGELOG.md` after the Release is published.
 
 - All Google/Geocoding/App Check code
 - Home Address modal and distance calculation
