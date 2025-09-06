@@ -1,0 +1,73 @@
+name: Update Changelog
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build changelog section
+        id: build
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          TAG="$TAG_NAME"
+          if [ -z "$TAG" ]; then echo "No tag name"; exit 0; fi
+          PREV=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -n 1 || true)
+          RANGE="$TAG"
+          if [ -n "$PREV" ]; then RANGE="$PREV..$TAG"; fi
+          DATE=$(date -u +"%Y-%m-%d")
+          echo "Previous tag: ${PREV:-none}"
+          echo "Range: $RANGE"
+          echo "## ${TAG} - ${DATE}" > section.md
+          echo "" >> section.md
+          echo "Changes" >> section.md
+          echo "" >> section.md
+          git log --pretty=format:"- %s (%h)" $RANGE >> section.md || true
+          echo "" >> section.md
+          echo "Built section:"; cat section.md
+
+      - name: Prepend to CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f section.md ]; then echo "No section built"; exit 0; fi
+          if [ -f CHANGELOG.md ]; then
+            tail -n +2 CHANGELOG.md > old.md || cp CHANGELOG.md old.md
+          else
+            touch old.md
+          fi
+          echo "# Changelog" > CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          cat section.md >> CHANGELOG.md
+          echo "" >> CHANGELOG.md
+          cat old.md >> CHANGELOG.md
+
+      - name: Commit and push
+        shell: bash
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          git commit -m "docs(changelog): update for ${TAG_NAME}"
+          git push
+

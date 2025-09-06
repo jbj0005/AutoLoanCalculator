@@ -93,6 +93,8 @@ Note: As of v0.2.0, all location/geocoding and distance features were removed to
 - Fix: Prevent duplicate `calcForm` declaration error in `app.js`.
 - Fix: Ensure `config.js` loads before `app.js` so Supabase initialization shows Connected.
 
+See full history in `CHANGELOG.md`.
+
 - All Google/Geocoding/App Check code
 - Home Address modal and distance calculation
 - Vehicle location/city/county fields and logic
