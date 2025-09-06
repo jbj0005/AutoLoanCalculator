@@ -44,8 +44,8 @@ body{
   margin: 0 auto 16px auto; /* center panels */
   max-width: 380px; /* narrow card by default */
 }
-/* Vehicle card can grow to fit controls while staying centered */
-#db-panel{ width: min(100%, 680px); max-width: 680px }
+/* Vehicle card inherits dynamic width from JS */
+#db-panel{ width: 100% }
 .panel-header{display:flex; align-items:center; gap:12px; justify-content:space-between}
 /* Vehicle DB header uses grid to center actions over select column */
 #db-panel .panel-header{ display:grid; grid-template-columns: 1fr; align-items:center; column-gap: 12px }
@@ -62,7 +62,7 @@ body{
 .db-row{ overflow: hidden }
 #db-panel .db-row .row-actions{ min-width: 0 }
 #db-panel .db-row .row-actions select{ min-width: 0; width: 100%; max-width: 100% }
-.vehicles-row{ grid-template-columns: 140px minmax(0,1fr) auto }
+#db-panel .vehicles-row{ grid-template-columns: 1fr }
 #db-panel .db-row.vehicles-row #supabase-status{ justify-self: end }
 .db-row .row-actions{display:flex; gap:8px; align-items:center}
 .db-row .row-actions{flex-wrap: wrap}
