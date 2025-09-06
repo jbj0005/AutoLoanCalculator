@@ -818,13 +818,20 @@ async function ensureVehiclePAC(){
   try {
     if (document.getElementById('dbLocationPAC')) return;
     await loadGoogleMaps();
-    if (!window.google?.maps?.places?.PlaceAutocompleteElement) return;
+    if (!window.google?.maps?.places) return;
     const locInput = document.getElementById('dbLocation');
     if (!locInput || !locInput.parentElement) return;
-    const pac = new google.maps.places.PlaceAutocompleteElement();
+    const pac = (google.maps.places.PlaceAutocompleteElement)
+      ? new google.maps.places.PlaceAutocompleteElement()
+      : document.createElement('gmpx-place-autocomplete');
     pac.id = 'dbLocationPAC'; pac.style.width = '100%';
-    locInput.parentElement.insertBefore(pac, locInput);
+    if (locInput.parentElement.contains(locInput)){
+      locInput.parentElement.insertBefore(pac, locInput);
+    } else {
+      locInput.insertAdjacentElement('beforebegin', pac);
+    }
     locInput.style.display = 'none';
+    if (!pac.getAttribute('placeholder')) pac.setAttribute('placeholder', 'City, State or ZIP');
     const handlePlaceSelect = async () => {
       const text = pac.value || '';
       if (!text.trim()) return;
@@ -1020,13 +1027,16 @@ window.addEventListener('DOMContentLoaded', async () => {
     try {
       if (document.getElementById('homePAC')) return;
       await loadGoogleMaps();
-      if (!window.google?.maps?.places?.PlaceAutocompleteElement) return;
+      if (!window.google?.maps?.places) return;
       const homeInput = document.getElementById('homeInput');
       if (!homeInput || !homeInput.parentElement) return;
-      const pacHome = new google.maps.places.PlaceAutocompleteElement();
+      const pacHome = (google.maps.places.PlaceAutocompleteElement)
+        ? new google.maps.places.PlaceAutocompleteElement()
+        : document.createElement('gmpx-place-autocomplete');
       pacHome.id = 'homePAC'; pacHome.style.width = '100%';
       homeInput.parentElement.insertBefore(pacHome, homeInput);
       homeInput.style.display = 'none';
+      if (!pacHome.getAttribute('placeholder')) pacHome.setAttribute('placeholder', 'City, State or ZIP');
       const handleHomeSelect = async () => {
         const text = pacHome.value || '';
         if (!text.trim()) return;
@@ -1163,6 +1173,10 @@ window.addEventListener('DOMContentLoaded', async () => {
   }
   const backfillBtn = document.getElementById('backfillGeoBtn'); if (backfillBtn) backfillBtn.addEventListener('click', backfillVehicleGeo);
 
+  // Expose PAC helpers for debugging in Console
+  window.ensureVehiclePAC = ensureVehiclePAC;
+  window.ensureHomePAC = ensureHomePAC;
+
   // Geocode DB location as you type (debounced)
   const debouncedDbLoc = debounce(async () => {
     const loc = $('#dbLocation').value.trim();
@@ -1240,7 +1254,16 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   // Load Google Places Autocomplete if key provided
   async function loadGoogleMaps(){
-    if (!window.GMAPS_API_KEY || window.google?.maps) return true;
+    // If Maps already present, ensure Places library is available
+    if (window.google?.maps){
+      try {
+        if (!window.google.maps.places && window.google.maps.importLibrary){
+          await window.google.maps.importLibrary('places');
+        }
+      } catch (e){ console.warn('Failed to import places library', e); }
+      return true;
+    }
+    if (!window.GMAPS_API_KEY) return true;
     let tokenParam = '';
     try {
       const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
