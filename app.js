@@ -821,33 +821,88 @@ async function ensureVehiclePAC(){
     if (!window.google?.maps?.places) return;
     const locInput = document.getElementById('dbLocation');
     if (!locInput || !locInput.parentElement) return;
-    const pac = (google.maps.places.PlaceAutocompleteElement)
-      ? new google.maps.places.PlaceAutocompleteElement()
-      : document.createElement('gmpx-place-autocomplete');
-    pac.id = 'dbLocationPAC'; pac.style.width = '100%';
-    if (locInput.parentElement.contains(locInput)){
+    if (google.maps.places.PlaceAutocompleteElement){
+      const pac = new google.maps.places.PlaceAutocompleteElement();
+      pac.id = 'dbLocationPAC'; pac.style.width = '100%';
       locInput.parentElement.insertBefore(pac, locInput);
+      locInput.style.display = 'none';
+      if (!pac.getAttribute('placeholder')) pac.setAttribute('placeholder', 'City, State or ZIP');
+      const handlePlaceSelect = async () => {
+        try {
+          let place = null;
+          try { place = typeof pac.getPlace === 'function' ? pac.getPlace() : null; } catch {}
+          let lat = null, lon = null, city = null, county = null, state_code = null, zip = null;
+          const get = (type, short=false) => {
+            if (!place || !place.address_components) return null;
+            const c = place.address_components.find(ac => ac.types && ac.types.includes(type));
+            if (!c) return null;
+            return short ? (c.short_name || null) : (c.long_name || null);
+          };
+          if (place){
+            city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
+            county = get('administrative_area_level_2');
+            state_code = get('administrative_area_level_1', true);
+            zip = get('postal_code');
+            try {
+              lat = (typeof place.location?.lat === 'function') ? place.location.lat() : (place.geometry?.location?.lat?.() ?? place.location?.lat ?? null);
+              lon = (typeof place.location?.lng === 'function') ? place.location.lng() : (place.geometry?.location?.lng?.() ?? place.location?.lng ?? null);
+            } catch {}
+          }
+          if (!city && !county && !zip && !lat && !lon){
+            const text = pac.value || '';
+            if (!text.trim()) return;
+            const res = await geocode(text);
+            city = res.city; county = res.county; state_code = res.state_code; zip = res.zip; lat = res.lat; lon = res.lon;
+          }
+          if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
+            try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; state_code = state_code || rev.state_code; zip = zip || rev.zip; city = city || rev.city; } catch {}
+          }
+          const resOut = { city, county, state_code, zip, lat, lon };
+          state.dbLocationGeo = { ...resOut };
+          document.getElementById('dbLocationCounty').textContent = county || '—';
+          document.getElementById('dbLocationZip').textContent = zip || '—';
+          document.getElementById('dbLocationCoords').textContent = fmtCoords(lat, lon);
+          const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
+          const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
+          updateDistanceUI(); updateDbMetaUI();
+        } catch(e){ console.warn('PAC vehicle selection handling failed', e); }
+      };
+      pac.addEventListener?.('gmpx-placechange', handlePlaceSelect);
+      pac.addEventListener?.('gmp-placeselect', handlePlaceSelect);
+      pac.addEventListener?.('place_changed', handlePlaceSelect);
+      pac.addEventListener?.('change', handlePlaceSelect);
+      pac.addEventListener?.('blur', handlePlaceSelect);
     } else {
-      locInput.insertAdjacentElement('beforebegin', pac);
-    }
-    locInput.style.display = 'none';
-    if (!pac.getAttribute('placeholder')) pac.setAttribute('placeholder', 'City, State or ZIP');
-    const handlePlaceSelect = async () => {
-      const text = pac.value || '';
-      if (!text.trim()) return;
-      try {
-        const res = await geocode(text);
-        state.dbLocationGeo = { ...res };
-        document.getElementById('dbLocationCounty').textContent = res.county || '—';
-        document.getElementById('dbLocationZip').textContent = res.zip || '—';
-        document.getElementById('dbLocationCoords').textContent = fmtCoords(res.lat, res.lon);
-        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
-        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
+      // Legacy autocomplete on visible input
+      const ac = new google.maps.places.Autocomplete(locInput, {
+        fields: ['address_components','geometry','name'],
+        componentRestrictions: { country: 'us' }
+      });
+      ac.addListener('place_changed', async () => {
+        const p = ac.getPlace();
+        if (!p || !p.address_components) return;
+        const get = (type, short=false) => {
+          const c = p.address_components.find(ac => ac.types.includes(type));
+          return c ? (short ? c.short_name : c.long_name) : null;
+        };
+        let city = get('locality') || get('postal_town') || get('sublocality');
+        let county = get('administrative_area_level_2');
+        const state_code = get('administrative_area_level_1', true);
+        const zip = get('postal_code');
+        let lat = p.geometry?.location?.lat?.() ?? null;
+        let lon = p.geometry?.location?.lng?.() ?? null;
+        if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
+          try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; city = city || rev.city; } catch {}
+        }
+        state.dbLocationGeo = { city, county, state_code, zip, lat, lon };
+        document.getElementById('dbLocationCounty').textContent = county || '—';
+        document.getElementById('dbLocationZip').textContent = zip || '—';
+        document.getElementById('dbLocationCoords').textContent = fmtCoords(lat, lon);
+        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
+        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
         updateDistanceUI(); updateDbMetaUI();
-      } catch {}
-    };
-    pac.addEventListener?.('gmp-placeselect', handlePlaceSelect);
-    pac.addEventListener?.('place_changed', handlePlaceSelect);
+      });
+    }
   } catch {}
 }
 
@@ -1030,27 +1085,87 @@ window.addEventListener('DOMContentLoaded', async () => {
       if (!window.google?.maps?.places) return;
       const homeInput = document.getElementById('homeInput');
       if (!homeInput || !homeInput.parentElement) return;
-      const pacHome = (google.maps.places.PlaceAutocompleteElement)
-        ? new google.maps.places.PlaceAutocompleteElement()
-        : document.createElement('gmpx-place-autocomplete');
-      pacHome.id = 'homePAC'; pacHome.style.width = '100%';
-      homeInput.parentElement.insertBefore(pacHome, homeInput);
-      homeInput.style.display = 'none';
-      if (!pacHome.getAttribute('placeholder')) pacHome.setAttribute('placeholder', 'City, State or ZIP');
-      const handleHomeSelect = async () => {
-        const text = pacHome.value || '';
-        if (!text.trim()) return;
+      if (google.maps.places.PlaceAutocompleteElement){
+        const pacHome = new google.maps.places.PlaceAutocompleteElement();
+        pacHome.id = 'homePAC'; pacHome.style.width = '100%';
+        homeInput.parentElement.insertBefore(pacHome, homeInput);
+        homeInput.style.display = 'none';
+        if (!pacHome.getAttribute('placeholder')) pacHome.setAttribute('placeholder', 'City, State or ZIP');
+        const handleHomeSelect = async () => {
         try {
-          const res = await geocode(text);
-          state.pendingHomeGeo = { ...res };
-          try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) pacHome.value = norm; } catch {}
-          const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = res.county || '—';
-          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = res.zip || '—';
-          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(res.lat, res.lon);
-        } catch {}
-      };
-      pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
-      pacHome.addEventListener?.('place_changed', handleHomeSelect);
+          let place = null;
+          try { place = typeof pacHome.getPlace === 'function' ? pacHome.getPlace() : null; } catch {}
+          let lat = null, lon = null, city = null, county = null, state_code = null, zip = null;
+          const get = (type, short=false) => {
+            if (!place || !place.address_components) return null;
+            const c = place.address_components.find(ac => ac.types && ac.types.includes(type));
+            if (!c) return null;
+            return short ? (c.short_name || null) : (c.long_name || null);
+          };
+          if (place){
+            city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
+            county = get('administrative_area_level_2');
+            state_code = get('administrative_area_level_1', true);
+            zip = get('postal_code');
+            try {
+              lat = (typeof place.location?.lat === 'function') ? place.location.lat() : (place.geometry?.location?.lat?.() ?? place.location?.lat ?? null);
+              lon = (typeof place.location?.lng === 'function') ? place.location.lng() : (place.geometry?.location?.lng?.() ?? place.location?.lng ?? null);
+            } catch {}
+          }
+          if (!city && !county && !zip && !lat && !lon){
+            const text = pacHome.value || '';
+            if (!text.trim()) return;
+            const res = await geocode(text);
+            city = res.city; county = res.county; state_code = res.state_code; zip = res.zip; lat = res.lat; lon = res.lon;
+          }
+          if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
+            try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; state_code = state_code || rev.state_code; zip = zip || rev.zip; city = city || rev.city; } catch {}
+          }
+          const resOut = { city, county, state_code, zip, lat, lon };
+          state.pendingHomeGeo = { ...resOut };
+          try { const norm = normalizeLocationFromGeo(resOut); if (norm) pacHome.value = norm; } catch {}
+          const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
+          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
+          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
+        } catch(e){ console.warn('PAC home selection handling failed', e); }
+        };
+        pacHome.addEventListener?.('gmpx-placechange', handleHomeSelect);
+        pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
+        pacHome.addEventListener?.('place_changed', handleHomeSelect);
+        pacHome.addEventListener?.('change', handleHomeSelect);
+        pacHome.addEventListener?.('blur', handleHomeSelect);
+        return;
+      } else {
+        // Fallback to legacy Autocomplete on visible input
+        try {
+          const acHome = new google.maps.places.Autocomplete(homeInput, {
+            fields: ['address_components','geometry','name'],
+            componentRestrictions: { country: 'us' }
+          });
+          acHome.addListener('place_changed', async () => {
+            const p = acHome.getPlace();
+            if (!p || !p.address_components) return;
+            const get = (type, short=false) => {
+              const c = p.address_components.find(ac => ac.types.includes(type));
+              return c ? (short ? c.short_name : c.long_name) : null;
+            };
+            let city = get('locality') || get('postal_town') || get('sublocality');
+            let county = get('administrative_area_level_2');
+            const state_code = get('administrative_area_level_1', true);
+            const zip = get('postal_code');
+            let lat = p.geometry?.location?.lat?.() ?? null;
+            let lon = p.geometry?.location?.lng?.() ?? null;
+            if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
+              try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; city = city || rev.city; } catch {}
+            }
+            state.pendingHomeGeo = { city, county, state_code, zip, lat, lon };
+            try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
+            const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
+            const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
+            const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
+          });
+        } catch (e){ console.warn('Legacy Home Autocomplete attach failed', e); }
+      }
     } catch {}
   }
 
