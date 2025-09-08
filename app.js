@@ -1,12 +1,8 @@
-/* AutoLoan — app.js (clean single-paste)
-   - Real-time calculations on all inputs
-   - Supabase -> localStorage fallback + header status
-   - Dealer fees (#addFee) + Gov fees presets (#govFeePreset) with live sums
-   - Trade equity accounting style with red/green + Tax Savings w/ Trade-in
-   - County tax manual override (#countyRateInput, optional)
-   - Total Taxes & Fees + Savings notes + "Don't Finance…" note
-   - APR/TERM datalist support; Monthly rate (APR/12) -> #monthlyApr to 4 decimals
-   - Null-safe wiring throughout
+/* AutoLoan — app.js (clean single-paste, v3)
+   - 0% APR reference: shows cost of financing (payment0, paymentDelta)
+   - Amount Financed note text: "Pay Taxes & Fees! You'll save $XX.XX Per Month"
+   - APR/TERM placeholders: 6.5% and 72 Months
+   - Keeps: 1% default county rate, goal payment, gov/dealer fees, live updates
 */
 
 (() => {
@@ -23,12 +19,13 @@
     selectedVehicle: null,  // { name, msrp }
     homeAddress: null,
     homeCoords: null,
-    dbLocationGeo: null,    // { county: "Orange", ... } if available
-    vehicleCounty: "",      // user-selected county fallback
-    countyRates: null,      // if you load county_tax_fl.json into this
+    dbLocationGeo: null,    // { county: "Orange", ... }
+    vehicleCounty: "",
+    countyRates: null,      // optional external JSON you load elsewhere
     countyRateUsed: 0,
     prevFocus: null,
-    data: null              // set by initDataLayer()
+    data: null,             // set by initDataLayer()
+    _applyingGoalDown: false
   };
 
   const HOME_ADDRESS_DEFAULT = "";
@@ -145,10 +142,7 @@
       clearTimeout(msgTimer);
       if (text) {
         msgTimer = setTimeout(() => {
-          try {
-            el.textContent = "";
-            el.classList.remove("ok", "warn", "err", "computed");
-          } catch {}
+          try { el.textContent = ""; el.classList.remove("ok", "warn", "err", "computed"); } catch {}
         }, 4000);
       }
     } catch {}
@@ -271,7 +265,7 @@
 
     const baseBeforeFees = tradeValue > 0 ? Math.max(0, priceForCalc - tradeValue) : priceForCalc;
     const taxableBase    = Math.max(0, baseBeforeFees + dealerFeesTotal);
-    const stateTax       = taxableBase * stateRate;      // fixed: removed stray label
+    const stateTax       = taxableBase * stateRate;
     const countyTax      = Math.min(taxableBase, countyCap) * countyRate;
     const taxes          = stateTax + countyTax;
 
@@ -373,6 +367,8 @@
     const cashDownEl = $("#cashDown");
     const aprEl      = $("#apr");
     const termEl     = $("#term");
+    const goalEl     = $("#goalMonthly");
+    const autoApplyGoal = $("#goalAutoApply")?.checked ?? false;
 
     const msrp         = getMsrpFromUI();
     const finalPrice   = parsePriceExpression(fpEl?.value || fpEl?.textContent || "", msrp);
@@ -409,8 +405,10 @@
     const userCountyRate = getCountyRateOverrideDecimal(); // decimal or null
     const inferredCounty = state.dbLocationGeo?.county || state.vehicleCounty || "";
     const autoCounty     = getCountyRate(inferredCounty);
-    const countyRate     = (userCountyRate ?? autoCounty.rate) || 0;
-    const defaulted      = userCountyRate == null ? autoCounty.defaulted : false;
+
+    // Default county rate to 1% when unspecified
+    const countyRate     = (userCountyRate ?? (autoCounty.rate || 0.01));
+    const defaulted      = userCountyRate == null ? (autoCounty.defaulted && !autoCounty.rate) : false;
     state.countyRateUsed = countyRate;
 
     const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
@@ -447,8 +445,7 @@
     }
     const trn = document.getElementById("taxesRatesNote");
     if (trn) {
-      const label = userCountyRate != null ? fmtPercentFromDecimal(countyRate) : `${(countyRate * 100).toFixed(2)}%`;
-      trn.textContent = `County Tax Rate = ${label}${defaulted ? " (Default)" : inferredCounty ? ` (${inferredCounty})` : ""}`;
+      trn.textContent = `County Tax Rate = ${fmtPercentFromDecimal(countyRate)}${defaulted ? " (Default 1%)" : inferredCounty ? ` (${inferredCounty})` : ""}`;
     }
     const ttf = document.getElementById("totalTF") || document.getElementById("totalTaxesAndFees");
     if (ttf) ttf.textContent = showTaxes ? fmtCurrency(totalTaxesFees) : "—";
@@ -464,14 +461,19 @@
       ? (r ? principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : principal / n)
       : 0;
 
+    // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
-    // "Don't finance Taxes & Fees" scenario
+    // 0% APR reference (same principal & term)
+    const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
+    const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
+
+    // "Don't finance Taxes & Fees" scenario (recommend paying T&F upfront)
     const amountFinanced_NoTF = Math.max(0, baseAmount);
     const monthly_NoTF        = pmnt(amountFinanced_NoTF);
     const dontFinanceSavings  = Math.max(0, monthly - monthly_NoTF);
 
-    // Baseline monthly (no trade/payoff)
+    // Baseline monthly (no trade/payoff) — retained for other UI blocks if present
     const baseBeforeFees0 = Math.max(0, (finalPrice && finalPrice > 0 ? finalPrice : msrp));
     const tNoTradeAgain   = computeTaxes({ priceForCalc: baseBeforeFees0, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
     const amountFinanced0 = Math.max(0, financeTF ? (baseBeforeFees0 - 0 + 0 - cashDown) + tNoTradeAgain.taxes + feesTotal
@@ -479,10 +481,35 @@
     const monthlyNoTrade  = pmnt(amountFinanced0);
     const paymentDelta    = Math.max(0, monthlyNoTrade - monthly);
 
-    // Outputs
+    // Goal Payment: compute extra cash down required
+    const goalMonthly = parseCurrency(goalEl?.value ?? "");
+    const goalDownOut = document.getElementById("goalDownNeeded") || document.getElementById("goalDownOut");
+    if (goalMonthly > 0 && n > 0) {
+      const { extraDown } = computeDownForGoal(goalMonthly, {
+        priceForCalc, tradeValue, payoff, cashDown,
+        apr: aprPercent, term,
+        dealerFeesTotal, govFeesTotal,
+        countyRate, stateRate, countyCap
+      });
+
+      if (goalDownOut) goalDownOut.textContent = extraDown > 0 ? fmtCurrency(extraDown) : fmtCurrency(0);
+
+      if (autoApplyGoal && !state._applyingGoalDown) {
+        state._applyingGoalDown = true;
+        const newDown = Math.max(0, cashDown + extraDown);
+        if (cashDownEl) cashDownEl.value = newDown ? fmtCurrency(newDown) : "";
+        computeAll();
+        state._applyingGoalDown = false;
+        return;
+      }
+    } else if (goalDownOut) {
+      goalDownOut.textContent = "";
+    }
+
+    // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
     (document.getElementById("monthlyPayment")  ) && (document.getElementById("monthlyPayment").textContent   = fmtCurrency(monthly));
-    (document.getElementById("monthly")         ) && (document.getElementById("monthly").textContent          = fmtCurrency(monthly)); // compatibility
+    (document.getElementById("monthly")         ) && (document.getElementById("monthly").textContent          = fmtCurrency(monthly)); // legacy
     (document.getElementById("dealerFeesTotal") ) && (document.getElementById("dealerFeesTotal").textContent  = fmtCurrency(dealerFeesTotal));
     (document.getElementById("govFeesOut")      ) && (document.getElementById("govFeesOut").textContent       = fmtCurrency(govFeesTotal));
 
@@ -508,15 +535,17 @@
       }
     }
 
-    // Payment savings card (if present)
-    const p0El = document.getElementById("payment0");
-    const pdEl = document.getElementById("paymentDelta");
+    // 0% APR reference & cost of financing
+    const p0El = document.getElementById("payment0");        // shows 0% APR monthly
+    const pdEl = document.getElementById("paymentDelta");    // shows cost of financing per month
+    if (p0El) p0El.textContent = fmtCurrency(zeroAprMonthly);
+    if (pdEl) pdEl.textContent = financingCostPerMonth > 0 ? fmtCurrency(financingCostPerMonth) : fmtCurrency(0);
+
+    // Recommendation: Pay T&F upfront — new phrasing
     const pmtSavingsEl = document.getElementById("pmtSavings");
-    if (p0El) p0El.textContent = fmtCurrency(monthlyNoTrade);
-    if (pdEl) pdEl.textContent = paymentDelta > 0 ? `-${fmtCurrency(paymentDelta)}` : fmtCurrency(0);
     if (pmtSavingsEl) {
-      if (paymentDelta > 0) {
-        pmtSavingsEl.textContent = `Payment down by ${fmtCurrency(paymentDelta)} due to trade/taxes`;
+      if (dontFinanceSavings > 0) {
+        pmtSavingsEl.textContent = `Recommendation: Pay Taxes & Fees upfront! You'll save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
         pmtSavingsEl.classList.add("computed");
       } else {
         pmtSavingsEl.textContent = "";
@@ -524,11 +553,11 @@
       }
     }
 
-    // Amount financed note
+    // Amount financed note — updated phrasing
     const afNote = document.getElementById("amountFinancedNote");
     if (afNote) {
       afNote.textContent = dontFinanceSavings > 0
-        ? `Don't Finance Taxes & Fees - Save "${fmtCurrency(dontFinanceSavings)}/mo"!`
+        ? `Pay Taxes & Fees! You'll save ${fmtCurrency(dontFinanceSavings)} Per Month`
         : "";
     }
 
@@ -561,16 +590,24 @@
   }
 
   function ensureOptionLists(){
-    // Label text
-    const financeLbl = document.getElementById("financeTFLabel") || document.querySelector('label[for="financeTF"]');
-    if (financeLbl) financeLbl.textContent = "Check Box to Finance Taxes & Fees";
-
-    // TERM via datalist (36/48/60/72) + custom ≥ 0
+    // TERM via datalist with labeled options; Safari-friendly type/text + list binding
     const termInput = document.getElementById("term");
     const termDatalist = document.getElementById("termOptions");
+    if (termInput) {
+      termInput.setAttribute("type", "text"); // datalist UX
+      termInput.setAttribute("placeholder", "72 Months"); // ← requested placeholder
+    }
     if (termInput && termDatalist) {
-      const presets = [36, 48, 60, 72];
-      termDatalist.innerHTML = presets.map(n => `<option value="${n}"></option>`).join("");
+      const presets = [
+        { m: 36, label: "36Mo / 3Yrs" },
+        { m: 48, label: "48Mo / 4Yrs" },
+        { m: 60, label: "60Mo / 5Yrs" },
+        { m: 72, label: "72Mo / 6Yrs" },
+        { m: 84, label: "84Mo / 7Yrs" },
+        { m: 96, label: "96Mo / 8Yrs" },
+      ];
+      termDatalist.innerHTML = presets.map(p => `<option value="${p.m}" label="${p.label}"></option>`).join("");
+      termInput.setAttribute("list", "termOptions");
       termInput.addEventListener("blur", () => {
         let v = parseInt(termInput.value || "0", 10);
         if (!Number.isFinite(v) || v < 0) v = 0;
@@ -583,10 +620,19 @@
     // APR presets via datalist (optional)
     const aprInput = document.getElementById("apr");
     const aprDatalist = document.getElementById("aprOptions");
+    if (aprInput) {
+      aprInput.setAttribute("type", "text");
+      aprInput.setAttribute("placeholder", "6.5%"); // ← requested placeholder
+    }
     if (aprInput && aprDatalist) {
       const aprs = [2.9, 3.9, 4.9, 5.9, 6.9, 7.9];
       aprDatalist.innerHTML = aprs.map(n => `<option value="${n}%"></option>`).join("");
+      aprInput.setAttribute("list", "aprOptions");
     }
+
+    // Label tweak for Finance Taxes & Fees
+    const financeLbl = document.getElementById("financeTFLabel") || document.querySelector('label[for="financeTF"]');
+    if (financeLbl) financeLbl.textContent = "Check Box to Finance Taxes & Fees";
   }
 
   function wireInputs() {
@@ -599,7 +645,7 @@
     attachPercentFormatter(document.getElementById("apr"));
     attachPercentFormatter(document.getElementById("countyRateInput")); // optional override
 
-    // TERM live recompute
+    // TERM live recompute (also handled in ensureOptionLists)
     document.getElementById("term")?.addEventListener("input", debouncedComputeAll);
 
     // Checkboxes/selects
@@ -630,7 +676,6 @@
       const opt = e.currentTarget.selectedOptions?.[0];
       if (!opt || !govList) return;
 
-      // Try data-amount, value, or text content (supports "$85" etc.)
       const tryVals = [opt.dataset.amount, opt.getAttribute("data-amount"), opt.value, opt.textContent];
       let amount = 0;
       for (const v of tryVals) {
