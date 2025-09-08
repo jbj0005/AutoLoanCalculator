@@ -250,3 +250,17 @@ input[type="checkbox"]{width:16px; height:16px}
 .trade-grid .t-label{ font-size:12px; color: var(--muted); text-transform: none }
 .trade-grid .op{ color: var(--muted) }
 #tradeEquity{ font-size:14px; font-variant-numeric: tabular-nums }
+
+/* Inline +/- control for numeric inputs */
+.input-with-controls{
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 6px;
+  align-items: center;
+}
+.input-with-controls .stepper{
+  line-height: 1;
+  padding: 6px 10px;
+  min-width: 36px;
+  text-align: center;
+}
