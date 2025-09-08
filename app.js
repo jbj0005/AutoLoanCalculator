@@ -1,1679 +1,724 @@
-/* Auto Loan Calculator - Mobile-Friendly, GitHub Pages ready
- * Core logic and lightweight UI wiring
- */
+/* AutoLoan — app.js (clean single-paste)
+   - Real-time calculations on all inputs
+   - Supabase -> localStorage fallback + header status
+   - Dealer fees (#addFee) + Gov fees presets (#govFeePreset) with live sums
+   - Trade equity accounting style with red/green + Tax Savings w/ Trade-in
+   - County tax manual override (#countyRateInput, optional)
+   - Total Taxes & Fees + Savings notes + "Don't Finance…" note
+   - APR/TERM datalist support; Monthly rate (APR/12) -> #monthlyApr to 4 decimals
+   - Null-safe wiring throughout
+*/
 
-// --- Configuration / Defaults ---
-const HOME_ADDRESS_DEFAULT = ""; // no personal default; user can set ZIP or address
-const COUNTY_DATA_URL = "data/county_tax_fl.json";
+(() => {
+  "use strict";
 
-// --- Global State ---
-const state = {
-  countyRates: null,
-  
-  vehicleZip: null,
-  vehicleCity: null,
-  countyRateUsed: null,
-  supabase: null,
-  selectedVehicle: null,
-  
-  pendingRatesImport: null,
-  pendingHomeGeo: null
-};
+  /* =========================
+     Utilities & state
+  ========================= */
+  const $  = (sel, root = document) => root.querySelector(sel);
+  const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+  const messagesEl = () => document.getElementById("calcMessages");
 
-// --- DOM Helpers ---
-const $ = (sel) => document.querySelector(sel);
-const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const state = {
+    selectedVehicle: null,  // { name, msrp }
+    homeAddress: null,
+    homeCoords: null,
+    dbLocationGeo: null,    // { county: "Orange", ... } if available
+    vehicleCounty: "",      // user-selected county fallback
+    countyRates: null,      // if you load county_tax_fl.json into this
+    countyRateUsed: 0,
+    prevFocus: null,
+    data: null              // set by initDataLayer()
+  };
 
-const messagesEl = () => document.getElementById('calcMessages');
-let msgTimer = null;
-function showCalcMessage(text, kind = ''){
-  try {
-    const el = messagesEl();
+  const HOME_ADDRESS_DEFAULT = "";
+  const DATA_KEYS = { vehicles: "AutoLoan.vehicles" };
+
+  /* =========================
+     Supabase / Data layer
+  ========================= */
+  function setSupabaseStatus(ready){
+    const el = document.getElementById("supabase-status");
     if (!el) return;
-    el.textContent = text || '';
-    el.classList.remove('warn');
-    if (kind) el.classList.add(kind);
-    clearTimeout(msgTimer);
-    if (text){ msgTimer = setTimeout(() => { try { el.textContent = ''; el.classList.remove('warn'); } catch{} }, 4000); }
-  } catch {}
-}
-
-// Toggle placeholder styling on computed display elements
-function setReadyPlaceholder(el, isPlaceholder){
-  if (!el) return;
-  el.classList.toggle('placeholder', !!isPlaceholder);
-  if (isPlaceholder){
-    const txt = (el.textContent || '').trim();
-    if (!txt){ el.textContent = '- -'; }
+    el.textContent = ready ? "Supabase: connected" : "Supabase: offline (local)";
+    el.classList.toggle("ok", ready);
+    el.classList.toggle("warn", !ready);
   }
-}
 
-// Debounce helper
-function debounce(fn, ms){
-  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-}
+  function initDataLayer(){
+    const url = window.SUPABASE_URL;
+    const key = window.SUPABASE_ANON_KEY;
+    const sb  = window.supabase?.createClient && url && key
+      ? window.supabase.createClient(url, key)
+      : null;
 
-function setSupabaseStatus(text, cls = 'warn'){
-  const el = document.getElementById('supabase-status');
-  if(!el) return;
-  el.textContent = text;
-  el.classList.remove('ok','warn','err');
-  el.classList.add(cls);
-}
+    state.data = sb ? {
+      ready: true,
+      async listVehicles(){
+        const { data, error } = await sb.from("vehicles").select("*").order("created_at", { ascending: false });
+        if (error) throw error;
+        return data || [];
+      },
+      async saveVehicle(v){
+        const { data, error } = await sb.from("vehicles").insert(v).select().single();
+        if (error) throw error;
+        return data;
+      }
+    } : {
+      ready: false,
+      async listVehicles(){
+        try { return JSON.parse(localStorage.getItem(DATA_KEYS.vehicles) || "[]"); }
+        catch { return []; }
+      },
+      async saveVehicle(v){
+        const list = await this.listVehicles();
+        list.unshift({ id: crypto?.randomUUID?.() || Date.now(), ...v });
+        localStorage.setItem(DATA_KEYS.vehicles, JSON.stringify(list));
+        return list[0];
+      }
+    };
 
-// --- Formatting Helpers ---
-const currencyFmt = new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' });
-const numberFmt = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
-const numberFmt4 = new Intl.NumberFormat(undefined, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
-
-function formatCurrency(n){
-  if (isNaN(n) || n === null) return '$0.00';
-  return currencyFmt.format(n);
-}
-function parseCurrency(s){
-  if (typeof s === 'number') return s;
-  if (!s) return 0;
-  // Remove anything not number, minus or dot
-  const v = parseFloat(String(s).replace(/[^0-9.-]/g, ''));
-  return isNaN(v) ? 0 : v;
-}
-function formatPercent(p){
-  if (isNaN(p)) return '—';
-  return `${numberFmt.format(p)}%`;
-}
-function parsePercent(s){
-  if (typeof s === 'number') return s;
-  if (!s) return 0;
-  const v = parseFloat(String(s).replace(/[^0-9.-]/g, ''));
-  return isNaN(v) ? 0 : v;
-}
-
-function fmtCoords(lat, lon){
-  const la = Number(lat), lo = Number(lon);
-  if (Number.isFinite(la) && Number.isFinite(lo)) return `${la.toFixed(5)}, ${lo.toFixed(5)}`;
-  return '—';
-}
-
-// Basic focus + page inert helpers for modals
-function setPageInert(except){
-  const children = Array.from(document.body.children);
-  for (const el of children){
-    if (el === except) continue;
-    el.setAttribute('inert', '');
+    setSupabaseStatus(!!sb);
   }
-}
-function clearPageInert(){
-  const inertEls = document.querySelectorAll('body > *[inert]');
-  inertEls.forEach(el => el.removeAttribute('inert'));
-}
 
-// Google integrations removed
+  /* =========================
+     Formatting & parsing
+  ========================= */
+  const USD = new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 2 });
+  const PCT = new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 2 });
 
-function normalizeLocationFromGeo(geo){
-  if (!geo) return '';
-  const zipOut = geo.zip || '';
-  const st = geo.state_code || (geo.state && /florida/i.test(geo.state) ? 'FL' : null);
-  const parts = [];
-  if (geo.city) parts.push(geo.city);
-  const tail = [st, zipOut].filter(Boolean).join(' ');
-  if (tail) parts.push(tail);
-  return parts.join(', ').trim();
-}
+  const fmtCurrency = (n) => Number.isFinite(n) ? USD.format(n) : "";
+  const fmtPercentFromDecimal = (v) => Number.isFinite(v) ? PCT.format(v) : "";
+  const fmtPercentPlain = (p) => Number.isFinite(p) ? `${(+p).toFixed(2).replace(/\.00$/,'')}%` : "";
 
-// Parse price expressions for Final Sale Price, supporting formulas like:
-// - "MSRP - 7500"
-// - "82000 - 6%"
-// - "MSRP - 6%" or "82000 * 0.94"
-// Falls back to currency parsing if expression is not recognized.
-function parsePriceExpression(input, msrp){
-  if (!input) return 0;
-  const s = String(input).trim();
-  if (!s) return 0;
-  const MSRP_VAL = Number(msrp) || 0;
-
-  // Shorthand: signed percent like "-6%" or "+2.5%" relative to MSRP
-  const mPctAdj = s.match(/^\s*([+\-])\s*([0-9]+(?:\.[0-9]+)?)\s*%\s*$/);
-  if (mPctAdj && MSRP_VAL > 0){
-    const sign = mPctAdj[1];
-    const pct = parseFloat(mPctAdj[2]);
-    if (!isNaN(pct)){
-      const delta = MSRP_VAL * (pct/100);
-      return sign === '+' ? (MSRP_VAL + delta) : (MSRP_VAL - delta);
+  function parseCurrency(str) {
+    if (!str) return 0;
+    const s = String(str).replace(/[,\s]/g, "").replace(/\$/g, "");
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  // parse "6" => 6 (%), "6%" => 6, "0.06" => 6
+  function parsePercent(str) {
+    if (!str) return 0;
+    const s = String(str).trim();
+    if (/%$/.test(s)) {
+      const n = Number(s.replace(/%/,'').trim());
+      return Number.isFinite(n) ? n : 0;
     }
+    const n = Number(s);
+    if (!Number.isFinite(n)) return 0;
+    return n <= 1 ? n * 100 : n;
   }
 
-  // Shorthand: if user types "+500" or "-7500" and an MSRP exists,
-  // treat it as MSRP plus/minus that amount.
-  const mAdj = s.match(/^\s*([+\-])\s*\$?\s*([0-9,]+(?:\.[0-9]+)?)\s*$/);
-  if (mAdj && MSRP_VAL > 0){
-    const sign = mAdj[1];
-    const val = parseCurrency(mAdj[2]);
-    if (!isNaN(val)){
-      return sign === '+' ? (MSRP_VAL + val) : (MSRP_VAL - val);
-    }
-  }
-
-  // Pattern: <base> (+|-) <percent>%
-  const mPct = s.match(/^\s*(msrp|[\d$,\.]+)\s*([+\-])\s*([\d.]+)\s*%\s*$/i);
-  if (mPct){
-    const baseStr = mPct[1];
-    const op = mPct[2];
-    const pct = parseFloat(mPct[3]);
-    const base = /msrp/i.test(baseStr) ? MSRP_VAL : parseCurrency(baseStr);
-    if (!isNaN(base) && !isNaN(pct)){
-      const delta = base * (pct/100);
-      return op === '+' ? (base + delta) : (base - delta);
-    }
-  }
-
-  // Replace MSRP token, strip $ and commas
-  let expr = s.replace(/msrp/gi, String(MSRP_VAL)).replace(/[$,]/g, '');
-  // Allow only safe arithmetic characters
-  if (/^[0-9+\-*/().\s]+$/.test(expr)){
+  // Allows "msrp - 1000" or "30000*0.97"
+  function parsePriceExpression(raw, msrp = 0) {
+    if (!raw) return 0;
+    let s = String(raw).trim().replace(/,/g, "").replace(/\$/g, "");
+    if (/msrp/i.test(s)) s = s.replace(/msrp/ig, String(msrp));
+    if (!/^[0-9+\-*/().\s]*$/.test(s)) return 0; // whitelist
     try {
       // eslint-disable-next-line no-new-func
-      const val = Function(`"use strict";return (${expr});`)();
-      const num = Number(val);
-      if (isFinite(num)) return num;
-    } catch {}
-  }
-  // Fallback to currency parsing
-  return parseCurrency(s);
-}
-
-// Bind currency inputs to auto-format on blur
-function attachCurrencyFormatter(input){
-  input.addEventListener('blur', () => {
-    const n = parseCurrency(input.value);
-    input.value = n ? formatCurrency(n) : '';
-    computeAll();
-    scheduleSave();
-  });
-  input.addEventListener('input', () => computeAll());
-  input.addEventListener('keydown', (e) => { if (e.key === 'Enter'){ e.preventDefault(); input.blur(); } });
-}
-
-// --- County rates ---
-async function loadCountyRates(){
-  try {
-    const res = await fetch(COUNTY_DATA_URL);
-    const json = await res.json();
-    state.countyRates = json;
-    localStorage.setItem('countyRates', JSON.stringify(json));
-  } catch (e) {
-    const cached = localStorage.getItem('countyRates');
-    if (cached){
-      state.countyRates = JSON.parse(cached);
-    } else {
-      state.countyRates = { meta: { stateRate: 0.06, countyCap: 5000 }, counties: { DEFAULT: 0.01 } };
-    }
-  }
-}
-
-function getCountyRate(countyName){
-  if (!state.countyRates) return { rate: 0.01, defaulted: true };
-  const name = (countyName || '').replace(/county$/i,'').trim();
-  const { counties } = state.countyRates;
-  if (name && counties[name]) return { rate: counties[name], defaulted: false };
-  return { rate: counties.DEFAULT ?? 0.01, defaulted: true };
-}
-
-// --- Geocoding & Distance ---
-// Google Geocoding (REST)
-async function geocodeGoogle(query, { biasFL = true } = {}){
-  const base = 'https://maps.googleapis.com/maps/api/geocode/json';
-  const url = new URL(base);
-  url.searchParams.set('address', query);
-  url.searchParams.set('key', window.GMAPS_API_KEY);
-  const comps = ['country:US'];
-  if (biasFL && !/\b[A-Z]{2}\b/i.test(query) && !/Florida/i.test(query)) comps.push('administrative_area:FL');
-  url.searchParams.set('components', comps.join('|'));
-  const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error('Google geocode failed');
-  const data = await res.json();
-  if (!data.results || !data.results.length) throw new Error('No results');
-  const r = data.results[0];
-  const get = (type, short=false) => {
-    const c = (r.address_components||[]).find(ac => ac.types.includes(type));
-    return c ? (short ? c.short_name : c.long_name) : null;
-  };
-  const city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
-  const county = get('administrative_area_level_2');
-  const state_code = get('administrative_area_level_1', true);
-  const zip = get('postal_code');
-  const loc = r.geometry?.location || {};
-  return { lat: Number(loc.lat), lon: Number(loc.lng), city, county, state_code, zip };
-}
-
-// Reverse geocode: lat/lon -> city/county/state/zip
-async function geocodeGoogleReverse(lat, lon){
-  const la = Number(lat), lo = Number(lon);
-  if (!Number.isFinite(la) || !Number.isFinite(lo)) throw new Error('Invalid coordinates for reverse geocode');
-  const base = 'https://maps.googleapis.com/maps/api/geocode/json';
-  const url = new URL(base);
-  url.searchParams.set('latlng', `${la},${lo}`);
-  url.searchParams.set('key', window.GMAPS_API_KEY);
-  const res = await fetch(url.toString(), { headers: { 'Accept': 'application/json' } });
-  if (!res.ok) throw new Error('Google reverse geocode failed');
-  const data = await res.json();
-  if (!data.results || !data.results.length) throw new Error('No results');
-  const r = data.results[0];
-  const get = (type, short=false) => {
-    const c = (r.address_components||[]).find(ac => ac.types.includes(type));
-    return c ? (short ? c.short_name : c.long_name) : null;
-  };
-  const city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
-  const county = get('administrative_area_level_2');
-  const state_code = get('administrative_area_level_1', true);
-  const zip = get('postal_code');
-  return { city, county, state_code, zip };
-}
-
-// (Removed Nominatim implementation — using Google only)
-
-function parseLooseLocation(q){
-  const out = { city: null, state_code: null, zip: null, lat: null, lon: null, county: null };
-  const zipm = q.match(/\b(\d{5})(?:-\d{4})?\b/);
-  if (zipm) out.zip = zipm[1];
-  const parts = q.split(',').map(s=>s.trim()).filter(Boolean);
-  if (parts.length){ out.city = parts[0]; }
-  const st = parts.length>1 ? parts[1] : '';
-  const st2 = st.match(/\b([A-Z]{2})\b/i);
-  if (st2) out.state_code = st2[1].toUpperCase();
-  return out;
-}
-// Wrapper: use Google only; if missing key, return best-effort parsed location so UI isn't blank
-async function geocode(address){
-  const q = (address || '').trim();
-  if (!q) throw new Error('Empty address');
-  // If no key or geocoding disabled, use a best-effort parser (no county)
-  if (!window.GMAPS_API_KEY || window.ENABLE_GOOGLE_GEOCODING === false){
-    return parseLooseLocation(q);
-  }
-  try {
-    return await geocodeGoogle(q, { biasFL: !/\b[A-Z]{2}\b/i.test(q) && !/Florida/i.test(q) });
-  } catch (e) {
-    // Fallback to best-effort parse so notes still update even if Google fails/geofenced
-    return parseLooseLocation(q);
-  }
-}
-
-function haversineMi(a, b){
-  if (!a || !b) return null;
-  const toRad = (d) => d * Math.PI / 180;
-  const R = 3958.7613; // miles
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
-  const c = 2 * Math.asin(Math.min(1, Math.sqrt(h)));
-  return R * c;
-}
-
-// Removed: home address geocoding
-async function ensureHomeCoords(){
-  const addr = state.homeAddress || HOME_ADDRESS_DEFAULT;
-  if (!addr){
-    // No home address set
-    return;
-  }
-  return;
-}
-
-// Removed vehicle geodata updates
-
-// --- Supabase ---
-function initSupabase(){
-  try {
-    if (window.SUPABASE_URL && window.SUPABASE_ANON_KEY){
-      state.supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
-      setSupabaseStatus('Connected', 'ok');
-    } else {
-      setSupabaseStatus('Supabase not configured', 'warn');
-    }
-  } catch(e){
-    console.warn('Supabase init failed', e);
-    setSupabaseStatus('Supabase init failed', 'err');
-  }
-}
-
-async function loadVehicles(){
-  const selectEl = $('#vehicleSelect');
-  if (!state.supabase){ selectEl.innerHTML = '<option value="">Select Vehicle</option>'; return; }
-  const { data, error } = await state.supabase
-    .from('vehicles')
-    .select('id,name,msrp')
-    .order('name');
-  if (error){ console.warn(error); return; }
-  selectEl.innerHTML = '<option value="">Select Vehicle</option>' +
-    data.map(v => `<option value="${v.id}" data-name="${encodeURIComponent(v.name||'')}" data-msrp="${v.msrp||''}">${v.name}</option>`).join('');
-}
-
-async function saveVehicle(){
-  if (!state.supabase){ alert('Supabase not configured'); return; }
-  let selected = $('#vehicleSelect').value || null;
-  const name = $('#dbVehicleName').value.trim();
-  const msrp = parseCurrency($('#dbMsrp').value);
-  
-  if (!name){ alert('Enter a vehicle name'); return; }
-  
-
-  if (selected){
-    const { error } = await state.supabase.from('vehicles')
-      .update({ name, msrp })
-      .eq('id', selected);
-    if (error){ alert('Update failed: ' + error.message); return; }
-    // Reflect new location immediately in UI
-    if (state.selectedVehicle && state.selectedVehicle.id === selected){ state.selectedVehicle.name = name; state.selectedVehicle.msrp = msrp; computeAll(); }
-  } else {
-    const { data, error } = await state.supabase.from('vehicles')
-      .insert({ name, msrp })
-      .select('id');
-    if (error){ alert('Insert failed: ' + error.message); return; }
-    if (data && data[0]?.id){ selected = String(data[0].id); }
-  }
-  
-  await loadVehicles();
-  if (selected){
-    $('#vehicleSelect').value = String(selected);
-    onVehicleSelected();
-  }
-}
-
-async function deleteVehicle(){
-  if (!state.supabase){ alert('Supabase not configured'); return; }
-  const id = $('#vehicleSelect').value;
-  if (!id){ alert('Select a vehicle to delete'); return; }
-  if (!confirm('Delete this vehicle?')) return;
-  const { error } = await state.supabase.from('vehicles').delete().eq('id', id);
-  if (error){ alert('Delete failed: ' + error.message); return; }
-  // Clear selection and calculator
-  $('#vehicleSelect').value = '';
-  state.selectedVehicle = null;
-  
-  const summaryVeh = document.getElementById('summaryVehicle'); if (summaryVeh) summaryVeh.textContent = '—';
-  const summaryMsrp = document.getElementById('summaryMsrp'); if (summaryMsrp) summaryMsrp.textContent = '—';
-  const cityEl = document.getElementById('dbCity'); if (cityEl) cityEl.textContent = '—';
-  const countyEl = document.getElementById('dbCounty'); if (countyEl) countyEl.textContent = '—';
-  const distEl = document.getElementById('dbDistance'); if (distEl) distEl.textContent = '—';
-  updateDistanceUI();
-  computeAll();
-  await loadVehicles();
-}
-
-function onVehicleSelected(){
-  const opt = $('#vehicleSelect').selectedOptions[0];
-  if (!opt || !opt.value){
-    // Clear DB-referenced calculator cells and related state
-    state.selectedVehicle = null;
-    
-    const vNameEl = document.getElementById('summaryVehicle');
-    const msrpEl = document.getElementById('summaryMsrp');
-    if (vNameEl) vNameEl.textContent = '—';
-    if (msrpEl) msrpEl.textContent = '—';
-    
-    computeAll();
-    return;
-  }
-  const name = decodeURIComponent(opt.dataset.name || '');
-  const msrp = opt.dataset.msrp || '';
-  state.selectedVehicle = { id: opt.value, name, msrp: parseCurrency(msrp) };
-  const summaryVeh2 = document.getElementById('summaryVehicle'); if (summaryVeh2) summaryVeh2.textContent = name || '—';
-  const summaryMsrp2 = document.getElementById('summaryMsrp'); if (summaryMsrp2) summaryMsrp2.textContent = msrp ? formatCurrency(parseCurrency(msrp)) : '—';
-  // Reflect selection in DB form for convenient updates
-  $('#dbVehicleName').value = name || '';
-  $('#dbMsrp').value = msrp ? formatCurrency(parseCurrency(msrp)) : '';
-  
-  // If Final Sale Price is blank/zero, auto-fill MSRP for convenience
-  const fpEl = document.getElementById('finalPrice');
-  if (fpEl){
-    const curVal = parseCurrency(fpEl.value);
-    const msNum = parseCurrency(msrp);
-    if ((!fpEl.value.trim() || curVal <= 0) && msNum > 0){
-      fpEl.value = formatCurrency(msNum);
-    }
-  }
-  computeAll();
-}
-
-// --- Core Calculations ---
-function computeAll(){
-  const name = state.selectedVehicle?.name || '';
-  const msrp = Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0;
-  const finalPrice = parsePriceExpression($('#finalPrice').value, msrp);
-  const priceForCalc = (finalPrice && finalPrice > 0) ? finalPrice : msrp; // Assume MSRP when Final is blank
-  const tradeValue = parseCurrency($('#tradeValue').value);
-  const payoffRaw = parseCurrency($('#loanPayoff').value);
-  const payoff = tradeValue > 0 ? payoffRaw : 0;
-  const cashDown = parseCurrency($('#cashDown').value);
-  const apr = parsePercent($('#apr').value); // annual %
-  const term = parseInt($('#term').value || '0', 10) || 0;
-  const financeTF = $('#financeTF').checked;
-
-  // Savings
-  const savingsEl = $('#savings');
-  savingsEl.classList.remove('warn','computed');
-  if (finalPrice > 0 && msrp > 0){
-    if (finalPrice < msrp){
-      const s = msrp - finalPrice;
-      savingsEl.textContent = `You Save ${formatCurrency(s)}`;
-      savingsEl.classList.add('computed');
-    } else if (finalPrice > msrp){
-      const over = finalPrice - msrp;
-      savingsEl.textContent = `Over MSRP by ${formatCurrency(over)}`;
-      savingsEl.classList.add('warn');
-    } else {
-      savingsEl.textContent = '';
-    }
-  } else {
-    savingsEl.textContent = '';
+      const val = Function(`"use strict";return (${s || 0});`)();
+      const n = Number(val);
+      return Number.isFinite(n) ? n : 0;
+    } catch { return 0; }
   }
 
-  // Trade Equity
-  const equity = tradeValue - payoff;
-  const te = $('#tradeEquity');
-  te.classList.remove('delta-neg','delta-pos');
-  if (tradeValue || payoff){
-    if (equity < 0){
-      te.textContent = `(${formatCurrency(-equity)})`;
-      te.classList.add('delta-neg');
-    } else {
-      te.textContent = formatCurrency(equity);
-      if (equity > 0) te.classList.add('delta-pos');
-    }
-  } else {
-    te.textContent = '—';
-  }
-  const negEquity = equity < 0 ? -equity : 0;
+  /* =========================
+     External hooks (safe no-ops)
+  ========================= */
+  const scheduleSave = (typeof window.scheduleSave === "function") ? window.scheduleSave : () => {};
+  const geocode      = (typeof window.geocode === "function")      ? window.geocode      : async (addr) => ({ lat: NaN, lon: NaN, address: addr });
+  const getCountyRate= (typeof window.getCountyRate === "function") ? window.getCountyRate: (countyName) => ({ rate: 0, defaulted: true, county: countyName || "DEFAULT" });
 
-  // Dealer Fees total
-  const dealerFeesTotal = $$('#dealerFeesList .fee-row input.fee-amount')
-    .map(i => parseCurrency(i.value)).reduce((a,b)=>a+b,0);
-  $('#dealerFeesTotal').textContent = formatCurrency(dealerFeesTotal);
-
-  // Gov Fees total
-  const govFeesTotal = $$('#govFeesList .fee-row input.fee-amount')
-    .map(i => parseCurrency(i.value)).reduce((a,b)=>a+b,0);
-  $('#govFeesTotal').textContent = formatCurrency(govFeesTotal);
-
-  // County + Taxes (default county only)
-  let countyRate = getCountyRate('').rate;
-  state.countyRateUsed = countyRate;
-
-  const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
-  const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
-  // Florida: Tax base is selling price less trade-in allowance (if any),
-  // plus taxable dealer fees. Government fees are NOT taxable.
-  const hasTrade = tradeValue > 0;
-  const baseBeforeFees = hasTrade ? Math.max(0, priceForCalc - tradeValue) : priceForCalc;
-  const taxableBase = Math.max(0, baseBeforeFees + dealerFeesTotal);
-  const stateTax = taxableBase * stateRate;
-  const countyTax = Math.min(taxableBase, countyCap) * countyRate;
-  const taxes = stateTax + countyTax;
-  const showTaxes = ((priceForCalc && priceForCalc > 0) || tradeValue);
-  $('#taxes').textContent = showTaxes ? formatCurrency(taxes) : '- -';
-  const tb = document.getElementById('taxesBreakdown');
-  if (tb){ if (showTaxes){ tb.textContent = `State Tax ${formatCurrency(stateTax)} | County Tax ${formatCurrency(countyTax)}`; tb.classList.add('computed'); } else { tb.textContent = 'State Tax — | County Tax —'; tb.classList.remove('computed'); } }
-  const trn = document.getElementById('taxesRatesNote');
-  if (trn){ const cPct = (countyRate*100).toFixed(2) + '%'; trn.textContent = `County Tax Rate = ${cPct} (Default)`; }
-  // Tax savings with trade-in
-  const noteWith = document.getElementById('tradeSavingsWith');
-  if (showTaxes){
-    const baseBeforeFeesNoTrade = Math.max(0, priceForCalc);
-    const taxableBaseNoTrade = Math.max(0, baseBeforeFeesNoTrade + dealerFeesTotal);
-    const stateTaxNo = taxableBaseNoTrade * stateRate;
-    const countyTaxNo = Math.min(taxableBaseNoTrade, countyCap) * countyRate;
-    const taxesNo = stateTaxNo + countyTaxNo;
-    const delta = Math.max(0, taxesNo - taxes);
-    if (noteWith){
-      setReadyPlaceholder(noteWith, false);
-      noteWith.textContent = `Tax Savings w/ Trade-in: ${formatCurrency(tradeValue > 0 ? delta : 0)}`;
-    }
-  } else {
-    if (noteWith){ setReadyPlaceholder(noteWith, true); noteWith.textContent = 'Tax Savings w/ Trade-in: - -'; }
-  }
-  // Total Taxes & Fees (dealer + gov + taxes)
-  const totalTF = dealerFeesTotal + govFeesTotal + taxes;
-  const totalTFEl = document.getElementById('totalTF');
-  if (totalTFEl){ totalTFEl.textContent = ((priceForCalc && priceForCalc > 0) || tradeValue || dealerFeesTotal || govFeesTotal) ? formatCurrency(totalTF) : '- -'; }
-
-  // Amount Financed
-  // Formula used:
-  // amount = finalPrice - tradeValue + payoff + (financeTF ? (govFees + dealerFees + taxes) : 0) - cashDown
-  const feesTotal = govFeesTotal + dealerFeesTotal;
-  const baseAmount = (priceForCalc - tradeValue + payoff) - cashDown;
-  const amountWithTF = Math.max(0, baseAmount + (feesTotal + taxes));
-  const amountWithoutTF = Math.max(0, baseAmount);
-  const amountFinanced = financeTF ? amountWithTF : amountWithoutTF;
-  const amtEl = document.getElementById('amountFinanced');
-  if (((priceForCalc && priceForCalc > 0) || tradeValue || payoff || govFeesTotal || dealerFeesTotal || taxes || cashDown)){
-    setReadyPlaceholder(amtEl, false); amtEl.textContent = formatCurrency(amountFinanced);
-  } else { setReadyPlaceholder(amtEl, true); }
-
-  // APR monthly and Payments
-  const monthlyRate = apr / 100 / 12;
-  const mRateEl = document.getElementById('monthlyApr');
-  if (apr){ setReadyPlaceholder(mRateEl, false); mRateEl.textContent = `${numberFmt4.format(apr/12)}%`; }
-  else { setReadyPlaceholder(mRateEl, true); }
-  const pmt = calcPayment(amountFinanced, monthlyRate, term);
-  const pmt0 = calcPayment(amountFinanced, 0, term);
-  // Savings on monthly payment if not financing taxes & fees
-  const pmtWith = calcPayment(amountWithTF, monthlyRate, term);
-  const pmtWithout = calcPayment(amountWithoutTF, monthlyRate, term);
-  const pmtSavings = Math.max(0, pmtWith - pmtWithout);
-  const pmtSavingsEl = document.getElementById('pmtSavings');
-  if (pmtSavingsEl){ if (term && (feesTotal || taxes)){ setReadyPlaceholder(pmtSavingsEl, false); pmtSavingsEl.textContent = `${formatCurrency(pmtSavings)}/mo`; } else { setReadyPlaceholder(pmtSavingsEl, true); } }
-  const mpEl = document.getElementById('monthlyPayment');
-  if (amountFinanced && term){ setReadyPlaceholder(mpEl, false); mpEl.textContent = formatCurrency(pmt); } else { setReadyPlaceholder(mpEl, true); }
-  const p0El = document.getElementById('payment0');
-  if (amountFinanced && term){ setReadyPlaceholder(p0El, false); p0El.textContent = formatCurrency(pmt0); } else { setReadyPlaceholder(p0El, true); }
-  const delta = pmt - pmt0;
-  const pdEl = document.getElementById('paymentDelta');
-  if (amountFinanced && term){ setReadyPlaceholder(pdEl, false); pdEl.textContent = `${formatCurrency(delta)}/mo`; } else { setReadyPlaceholder(pdEl, true); }
-
-  computeCalcPanelWidth();
-}
-
-function calcPayment(pv, r, n){
-  if (!pv || !n) return 0;
-  if (!r) return pv / n;
-  return (r * pv) / (1 - Math.pow(1 + r, -n));
-}
-
-function updateDistanceUI(){
-  const dEl = $('#dbDistance');
-  if (!dEl) return;
-  if (!state.homeCoords || !Number.isFinite(Number(state.homeCoords.lat)) || !Number.isFinite(Number(state.homeCoords.lon))){
-    dEl.textContent = '—';
-    return;
-  }
-  // If editing in modal and we have a live geocode result, use that for preview distance
-  const vehModal = document.getElementById('vehicleModal');
-  const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
-  const coords = (modalOpen && state.dbLocationGeo && Number.isFinite(Number(state.dbLocationGeo.lat)) && Number.isFinite(Number(state.dbLocationGeo.lon)))
-    ? { lat: Number(state.dbLocationGeo.lat), lon: Number(state.dbLocationGeo.lon) }
-    : state.vehicleCoords;
-  if (!coords || !Number.isFinite(Number(coords.lat)) || !Number.isFinite(Number(coords.lon))){
-    dEl.textContent = '—';
-    return;
-  }
-  const d = haversineMi(state.homeCoords, coords);
-  dEl.textContent = d ? `${numberFmt.format(d)} mi` : '—';
-}
-
-function updateDbMetaUI(){
-  const cityEl = $('#dbCity');
-  const countyEl = $('#dbCounty');
-  const homeAddrEl = $('#dbHomeAddress');
-  if (!cityEl && !countyEl) return;
-  const vehModal = document.getElementById('vehicleModal');
-  const modalOpen = !!(vehModal && vehModal.classList.contains('open'));
-  if (modalOpen && state.dbLocationGeo){
-    if (cityEl) cityEl.textContent = state.dbLocationGeo.city || '—';
-    if (countyEl) countyEl.textContent = state.dbLocationGeo.county || '—';
-  } else {
-    if (cityEl) cityEl.textContent = state.vehicleCity || '—';
-    if (countyEl) countyEl.textContent = state.vehicleCounty || '—';
-  }
-  if (homeAddrEl){ homeAddrEl.textContent = state.homeAddress || '—'; }
-}
-
-// --- Dynamic calculator width ---
-function computeCalcPanelWidth(){
-  const panel = document.getElementById('calc-panel');
-  if (!panel) return;
-  const inputs = [
-    document.getElementById('finalPrice'),
-    document.getElementById('tradeValue'),
-    document.getElementById('loanPayoff'),
-    document.getElementById('cashDown'),
-    document.getElementById('apr'),
-    document.getElementById('term'),
-    document.querySelector('#calc-panel .amount-row .checkbox'),
-    ...Array.from(document.querySelectorAll('#dealerFeesList .fee-row input.fee-amount')),
-    ...Array.from(document.querySelectorAll('#govFeesList .fee-row input.fee-amount')),
-    ...Array.from(document.querySelectorAll('#dealerFeesList .fee-row input.fee-name')),
-    ...Array.from(document.querySelectorAll('#govFeesList .fee-row input.fee-name')),
-  ].filter(Boolean);
-
-  const noteEls = Array.from(document.querySelectorAll('#calc-panel .cell-value .note, #calc-panel .cell-value .hint'));
-  // Toggle wrapping based on length vs base reference note
-  const baseNoteText = '6% state + county rate on first $5k';
-  const baseLen = baseNoteText.length;
-  noteEls.forEach(el => {
-    const len = (el.textContent || '').trim().length;
-    if (len > baseLen) el.classList.add('wrap-note');
-    else el.classList.remove('wrap-note');
-  });
-  const nowrapNotes = noteEls.filter(el => !el.classList.contains('wrap-note'));
-  const itemsToMeasure = inputs.slice();
-  if (nowrapNotes.length) itemsToMeasure.push(...nowrapNotes);
-
-  if (!itemsToMeasure.length){ panel.style.maxWidth = '380px'; return; }
-
-  const measurer = document.createElement('span');
-  measurer.style.position = 'absolute';
-  measurer.style.visibility = 'hidden';
-  measurer.style.whiteSpace = 'pre';
-  document.body.appendChild(measurer);
-
-  let maxText = 0;
-  for (const el of itemsToMeasure){
-    const cs = window.getComputedStyle(el);
-    measurer.style.fontFamily = cs.fontFamily;
-    measurer.style.fontSize = cs.fontSize;
-    measurer.style.fontWeight = cs.fontWeight;
-    measurer.style.letterSpacing = cs.letterSpacing;
-    const text = ('value' in el) ? (el.value || el.placeholder || '') : el.textContent || '';
-    measurer.textContent = text;
-    const w = measurer.getBoundingClientRect().width;
-    if (w > maxText) maxText = w;
-  }
-  // Also measure combined width needed for the Trade-in row (value − payoff = equity)
-  const t1 = document.getElementById('tradeValue');
-  const t2 = document.getElementById('loanPayoff');
-  const t3 = document.getElementById('tradeEquity');
-  let tradeSum = 0;
-  if (t1 && t2 && t3){
-    const measureEl = (el) => {
-      const cs = window.getComputedStyle(el);
-      measurer.style.fontFamily = cs.fontFamily;
-      measurer.style.fontSize = cs.fontSize;
-      measurer.style.fontWeight = cs.fontWeight;
-      measurer.style.letterSpacing = cs.letterSpacing;
-      const txt = ('value' in el) ? (el.value || el.placeholder || '') : (el.textContent || '');
-      measurer.textContent = txt;
-      return measurer.getBoundingClientRect().width;
-    };
-    const w1 = measureEl(t1);
-    const w2 = measureEl(t2);
-    const w3 = measureEl(t3);
-    // Operators and column gaps
-    const anyOp = document.querySelector('#calc-panel .trade-grid .op');
-    let opW = 12;
-    if (anyOp){
-      const cs = window.getComputedStyle(anyOp);
-      measurer.style.fontFamily = cs.fontFamily;
-      measurer.style.fontSize = cs.fontSize;
-      measurer.style.fontWeight = cs.fontWeight;
-      measurer.style.letterSpacing = cs.letterSpacing;
-      measurer.textContent = anyOp.textContent || '−';
-      opW = measurer.getBoundingClientRect().width;
-    }
-    const grid = document.querySelector('#calc-panel .trade-grid');
-    let gap = 8;
-    if (grid){
-      const cs = window.getComputedStyle(grid);
-      const g = parseFloat(cs.columnGap);
-      if (!Number.isNaN(g)) gap = g;
-    }
-    // Approximate padding/border around inputs/outputs
-    const padInput = 24; // ~12px left/right padding
-    const padOutput = 0; // outputs already measured as text only
-    tradeSum = (w1 + padInput) + opW + (w2 + padInput) + opW + (w3 + padOutput) + (gap * 4);
-  }
-  measurer.remove();
-
-  // Measure fee rows combined columns so long names don't clip on wide screens
-  let feeMax = 0;
-  try {
-    const feeRows = document.querySelectorAll('#dealerFeesList .fee-row, #govFeesList .fee-row');
-    const getTextWidth = (el) => {
-      const cs = window.getComputedStyle(el);
-      const sample = document.createElement('span');
-      sample.style.position = 'absolute';
-      sample.style.visibility = 'hidden';
-      sample.style.whiteSpace = 'pre';
-      sample.style.fontFamily = cs.fontFamily;
-      sample.style.fontSize = cs.fontSize;
-      sample.style.fontWeight = cs.fontWeight;
-      sample.style.letterSpacing = cs.letterSpacing;
-      sample.textContent = (el.value || el.placeholder || el.textContent || '');
-      document.body.appendChild(sample);
-      const w = sample.getBoundingClientRect().width;
-      sample.remove();
-      return w;
-    };
-    let gap = 8; // from CSS
-    const anyRow = document.querySelector('.fee-row');
-    if (anyRow){
-      const gcs = window.getComputedStyle(anyRow);
-      const g = parseFloat(gcs.columnGap);
-      if (!Number.isNaN(g)) gap = g;
-    }
-    // Estimate remove button width dynamically
-    let removeW = 70;
-    const anyBtn = document.querySelector('.fee-row .remove');
-    if (anyBtn){
-      const w = getTextWidth(anyBtn) + 24; // add padding
-      if (w > removeW) removeW = w;
-    }
-    const amtCol = 140 + 24; // fixed column + padding
-    const namePad = 24; // name input padding
-    feeRows.forEach(row => {
-      const nameInput = row.querySelector('input.fee-name');
-      if (!nameInput) return;
-      const nameW = getTextWidth(nameInput) + namePad;
-      const w = nameW + amtCol + removeW + (gap * 2);
-      if (w > feeMax) feeMax = w;
-    });
-  } catch {}
-
-  // Add padding/borders/suffix allowance, clamp to viewport
-  const extra = 140; // cell + input paddings and term suffix
-  const desired = Math.ceil(maxText + extra);
-  const desiredTrade = tradeSum ? Math.ceil(tradeSum + 40) : 0; // add small buffer
-  const desiredAll = Math.max(desired, desiredTrade, Math.ceil(feeMax));
-  const min = 380;
-  const vw = Math.max(320, window.innerWidth - 32);
-  const finalW = Math.min(vw, Math.max(min, desiredAll));
-  panel.style.maxWidth = `${finalW}px`;
-  // Apply the same max width to all section cards (panels + summary)
-  const cards = document.querySelectorAll('.panel, .summary');
-  cards.forEach(el => { el.style.maxWidth = `${finalW}px`; });
-}
-
-// --- Modal helpers ---
-async function ensureVehiclePAC(){
-  const vehLoad = document.getElementById('vehiclePacLoading');
-  if (vehLoad) vehLoad.style.display = 'block';
-  try {
-    if (document.getElementById('dbLocationPAC')) return true;
-    await loadGoogleMaps();
-    if (!window.google?.maps?.places) return false;
-    const locInput = document.getElementById('dbLocation');
-    if (!locInput || !locInput.parentElement) return false;
-    if (google.maps.places.PlaceAutocompleteElement){
-      const pac = new google.maps.places.PlaceAutocompleteElement();
-      pac.id = 'dbLocationPAC'; pac.style.width = '100%';
-      locInput.parentElement.insertBefore(pac, locInput);
-      locInput.style.display = 'none';
-      if (!pac.getAttribute('placeholder')) pac.setAttribute('placeholder', 'City, State or ZIP');
-      const handlePlaceSelect = async () => {
-        try {
-          let place = null;
-          try { place = typeof pac.getPlace === 'function' ? pac.getPlace() : null; } catch {}
-          let lat = null, lon = null, city = null, county = null, state_code = null, zip = null;
-          const get = (type, short=false) => {
-            if (!place || !place.address_components) return null;
-            const c = place.address_components.find(ac => ac.types && ac.types.includes(type));
-            if (!c) return null;
-            return short ? (c.short_name || null) : (c.long_name || null);
-          };
-          if (place){
-            city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
-            county = get('administrative_area_level_2');
-            state_code = get('administrative_area_level_1', true);
-            zip = get('postal_code');
-            try {
-              lat = (typeof place.location?.lat === 'function') ? place.location.lat() : (place.geometry?.location?.lat?.() ?? place.location?.lat ?? null);
-              lon = (typeof place.location?.lng === 'function') ? place.location.lng() : (place.geometry?.location?.lng?.() ?? place.location?.lng ?? null);
-            } catch {}
-          }
-          if (!city && !county && !zip && !lat && !lon){
-            const text = pac.value || '';
-            if (!text.trim()) return;
-            const res = await geocode(text);
-            city = res.city; county = res.county; state_code = res.state_code; zip = res.zip; lat = res.lat; lon = res.lon;
-          }
-          if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
-            try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; state_code = state_code || rev.state_code; zip = zip || rev.zip; city = city || rev.city; } catch {}
-          }
-          const resOut = { city, county, state_code, zip, lat, lon };
-          state.dbLocationGeo = { ...resOut };
-          document.getElementById('dbLocationCounty').textContent = county || '—';
-          document.getElementById('dbLocationZip').textContent = zip || '—';
-          document.getElementById('dbLocationCoords').textContent = fmtCoords(lat, lon);
-          const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = city || '—';
-          const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = county || '—';
-          updateDistanceUI(); updateDbMetaUI();
-        } catch(e){ console.warn('PAC vehicle selection handling failed', e); }
-      };
-      pac.addEventListener?.('gmpx-placechange', handlePlaceSelect);
-      pac.addEventListener?.('gmp-placeselect', handlePlaceSelect);
-      pac.addEventListener?.('place_changed', handlePlaceSelect);
-      pac.addEventListener?.('change', handlePlaceSelect);
-      pac.addEventListener?.('blur', handlePlaceSelect);
-      return true;
-    }
-    return false;
-  } catch (e) {
-    console.warn('ensureVehiclePAC failed', e);
-    return false;
-  } finally {
-    if (vehLoad) vehLoad.style.display = 'none';
-  }
-}
-
-async function openVehicleModal(mode){
-  const modal = document.getElementById('vehicleModal');
-  const title = document.getElementById('vehicleModalTitle');
-  if (mode === 'add'){
-    title.textContent = 'Add Vehicle';
-    // Clear selection so save inserts
-    $('#vehicleSelect').value = '';
-    $('#dbVehicleName').value = '';
-    $('#dbMsrp').value = '';
-    
-  } else {
-    title.textContent = 'Update Vehicle';
-    if (!$('#vehicleSelect').value){
-      alert('Select a vehicle to update');
-      return;
-    }
-  }
-  // manage focus + inert while opening
-  state.prevFocus = document.activeElement;
-  modal.classList.add('open');
-  modal.setAttribute('aria-hidden', 'false');
-  try { setPageInert(modal); } catch {}
-  const focusEl = document.getElementById('dbVehicleName');
-  if (focusEl && typeof focusEl.focus === 'function') setTimeout(() => focusEl.focus(), 0);
-}
-
-function closeVehicleModal(){
-  const modal = document.getElementById('vehicleModal');
-  // blur any focused descendant before hiding from AT
-  const active = document.activeElement;
-  if (active && modal.contains(active) && typeof active.blur === 'function') active.blur();
-  modal.classList.remove('open');
-  modal.setAttribute('aria-hidden', 'true');
-  clearPageInert();
-  // restore focus to opener if possible
-  if (state.prevFocus && document.contains(state.prevFocus) && typeof state.prevFocus.focus === 'function'){
-    try { state.prevFocus.focus(); } catch {}
-  }
-}
-
-// --- Fees UI ---
-const STORAGE_KEY = 'calcStateV1';
-let saveTimer = null;
-function scheduleSave(){ try{ clearTimeout(saveTimer); }catch{} saveTimer = setTimeout(saveCalcState, 300); }
-
-function addFeeRow(name = '', amount = ''){
-  const row = document.createElement('div');
-  row.className = 'fee-row';
-  row.innerHTML = `
-    <input class=\"fee-name\" type=\"text\" name=\"dealerFeeName[]\" placeholder=\"e.g., Doc Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" name=\"dealerFeeAmount[]\" inputmode=\"decimal\" enterkeyhint=\"done\" placeholder=\"e.g. $699\" value=\"${amount}\" />
-    <button type=\"button\" class=\"remove\">Remove</button>
-  `;
-  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); scheduleSave(); });
-  const amt = row.querySelector('.fee-amount');
-  attachCurrencyFormatter(amt);
-  // Faster entry: Enter on name -> amount, Enter on amount -> add another row
-  const nameEl = row.querySelector('.fee-name');
-  if (nameEl){ nameEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); amt?.focus(); }}); }
-  if (amt){ amt.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addFeeRow(); }}); }
-  $('#dealerFeesList').appendChild(row);
-  if (!name){ try { row.querySelector('.fee-name')?.focus(); } catch {} }
-  scheduleSave();
-}
-
-function addGovFeeRow(name = '', amount = ''){
-  const row = document.createElement('div');
-  row.className = 'fee-row';
-  row.innerHTML = `
-    <input class=\"fee-name\" type=\"text\" name=\"govFeeName[]\" placeholder=\"e.g., Title Fee\" value=\"${name}\" />
-    <input class=\"fee-amount\" type=\"text\" name=\"govFeeAmount[]\" inputmode=\"decimal\" placeholder=\"e.g., $85\" value=\"${amount}\" />
-    <button type=\"button\" class=\"remove\">Remove</button>
-  `;
-  row.querySelector('.remove').addEventListener('click', (e) => { e.preventDefault(); row.remove(); computeAll(); scheduleSave(); });
-  const amt = row.querySelector('.fee-amount');
-  attachCurrencyFormatter(amt);
-  const nameEl = row.querySelector('.fee-name');
-  if (nameEl){ nameEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); amt?.focus(); }}); }
-  if (amt){ amt.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addGovFeeRow(); }}); }
-  $('#govFeesList').appendChild(row);
-  if (!name){ try { row.querySelector('.fee-name')?.focus(); } catch {} }
-  scheduleSave();
-}
-
-// --- Settings ---
-function loadHomeAddress(){
-  const saved = localStorage.getItem('homeAddress');
-  state.homeAddress = saved || HOME_ADDRESS_DEFAULT;
-}
-
-// legacy: saveHomeAddress handled via updateHomeBtn prompt now
-
-// --- Wire up ---
-window.addEventListener('DOMContentLoaded', async () => {
-  initSupabase();
-  await loadCountyRates();
-  loadHomeAddress();
-  await ensureHomeCoords();
-  // Version pill from config if provided
-  try {
-    const verEl = document.getElementById('version');
-    if (verEl && window.APP_VERSION){ verEl.textContent = String(window.APP_VERSION); }
-  } catch {}
-
-  // Optional debug helper: manually fetch and log an App Check token
-  window.testAppCheck = async () => {
+  /* =========================
+     Toast
+  ========================= */
+  let msgTimer = null;
+  function showCalcMessage(text, kind = "") {
     try {
-      const siteKey = window.RECAPTCHA_ENTERPRISE_SITE_KEY;
-      if (!siteKey) return console.warn('No RECAPTCHA_ENTERPRISE_SITE_KEY configured');
-      if (!window.grecaptcha || !window.grecaptcha.enterprise){
-        await new Promise((resolve, reject) => {
-          const s = document.createElement('script');
-          s.src = `https://www.google.com/recaptcha/enterprise.js?render=${encodeURIComponent(siteKey)}`;
-          s.async = true; s.defer = true;
-          s.onload = resolve; s.onerror = reject;
-          document.head.appendChild(s);
-        });
-      }
-      await new Promise(res => window.grecaptcha.enterprise.ready(res));
-      const tok = await window.grecaptcha.enterprise.execute(siteKey, { action: 'places' });
-      console.log('App Check token acquired (truncated):', tok ? tok.slice(0, 16) + '…' : tok);
-      return tok;
-    } catch (e){ console.warn('testAppCheck failed', e); return null; }
-  };
-
-  // Inputs (currency formatter for all except finalPrice which supports expressions)
-  ['tradeValue','loanPayoff','cashDown'].forEach(id => {
-    const el = document.getElementById(id);
-    attachCurrencyFormatter(el);
-  });
-  // Specialized handling for Final Sale Price (supports formulas)
-  const fp = document.getElementById('finalPrice');
-  const getCurrentMsrp = () => (Number.isFinite(state.selectedVehicle?.msrp) ? state.selectedVehicle.msrp : 0);
-  fp.addEventListener('blur', () => {
-    const msrpNow = getCurrentMsrp();
-    const raw = (fp.value || '').trim();
-    const n = parsePriceExpression(raw, msrpNow);
-    // If no vehicle selected (no MSRP) and user typed a negative number, warn and clear
-    const direct = parseCurrency(raw);
-    if ((!msrpNow || msrpNow <= 0) && direct < 0){
-      showCalcMessage("Final Sale Price can't be a negative number", 'warn');
-      fp.value = '';
-    } else {
-      fp.value = n ? formatCurrency(n) : '';
-    }
-    computeAll();
-  });
-  fp.addEventListener('input', () => computeAll());
-  fp.addEventListener('input', () => scheduleSave());
-  fp.addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); fp.blur(); }});
-  // If no trade-in value, clear payoff dynamically
-  const tradeEl = document.getElementById('tradeValue');
-  const payoffEl = document.getElementById('loanPayoff');
-  tradeEl.addEventListener('input', () => {
-    if (parseCurrency(tradeEl.value) <= 0){
-      if (payoffEl.value){ payoffEl.value = ''; }
-    }
-  });
-  tradeEl.addEventListener('input', () => scheduleSave());
-  payoffEl.addEventListener('input', () => scheduleSave());
-
-  $('#apr').addEventListener('input', computeAll);
-  $('#apr').addEventListener('input', () => scheduleSave());
-  $('#apr').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
-  $('#term').addEventListener('input', computeAll);
-  $('#term').addEventListener('input', () => scheduleSave());
-  $('#term').addEventListener('keydown', (e)=>{ if (e.key==='Enter'){ e.preventDefault(); e.target.blur(); }});
-  $('#financeTF').addEventListener('change', computeAll);
-  $('#financeTF').addEventListener('change', () => scheduleSave());
-
-  // Form submission handled later in a single place
-
-  // Fees
-  $('#addFee').addEventListener('click', (e) => { e.preventDefault(); addFeeRow(); });
-  $('#addGovFee').addEventListener('click', (e) => { e.preventDefault(); addGovFeeRow(); });
-  try { document.getElementById('dealerFeesList').addEventListener('input', () => scheduleSave()); } catch {}
-  try { document.getElementById('govFeesList').addEventListener('input', () => scheduleSave()); } catch {}
-  const govPreset = document.getElementById('govFeePreset');
-  if (govPreset){
-    govPreset.addEventListener('change', (e) => {
-      const sel = e.target;
-      const opt = sel.selectedOptions && sel.selectedOptions[0];
-      if (!opt || !opt.value) return;
-      const name = opt.getAttribute('data-name') || (opt.textContent || '').trim();
-      const amt = formatCurrency(parseCurrency(opt.value));
-      addGovFeeRow(name, amt);
-      computeAll();
-      scheduleSave();
-      sel.value = '';
-    });
-  }
-
-  // Supabase
-  // Modal actions for Add/Update vehicle
-  $('#saveVehicle').addEventListener('click', async () => { await saveVehicle(); closeVehicleModal(); });
-  $('#deleteVehicle').addEventListener('click', deleteVehicle);
-  $('#vehicleSelect').addEventListener('change', onVehicleSelected);
-  $('#addVehicleBtn').addEventListener('click', () => openVehicleModal('add'));
-  $('#updateVehicleBtn').addEventListener('click', () => openVehicleModal('update'));
-  $('#modalClose').addEventListener('click', closeVehicleModal);
-  $('#modalCancel').addEventListener('click', closeVehicleModal);
-  // Enter key inside modal saves
-  const vehModal = document.getElementById('vehicleModal');
-  vehModal.addEventListener('keydown', async (e) => {
-    if (e.key === 'Enter'){
-      e.preventDefault();
-      await saveVehicle();
-      closeVehicleModal();
-    }
-  });
-  // (Removed) Pencil icons to open update dialog
-  loadVehicles();
-
-  // Home Address modal (Places-like UX)
-  async function ensureHomePAC(){
-    try {
-      const homeLoad = document.getElementById('homePacLoading');
-      if (homeLoad) homeLoad.style.display = 'block';
-      if (document.getElementById('homePAC')) return;
-      await loadGoogleMaps();
-      if (!window.google?.maps?.places) return;
-      const homeInput = document.getElementById('homeInput');
-      if (!homeInput || !homeInput.parentElement) return;
-      if (google.maps.places.PlaceAutocompleteElement){
-        const pacHome = new google.maps.places.PlaceAutocompleteElement();
-        pacHome.id = 'homePAC'; pacHome.style.width = '100%';
-        homeInput.parentElement.insertBefore(pacHome, homeInput);
-        homeInput.style.display = 'none';
-        if (!pacHome.getAttribute('placeholder')) pacHome.setAttribute('placeholder', 'City, State or ZIP');
-        const handleHomeSelect = async () => {
-        try {
-          let place = null;
-          try { place = typeof pacHome.getPlace === 'function' ? pacHome.getPlace() : null; } catch {}
-          let lat = null, lon = null, city = null, county = null, state_code = null, zip = null;
-          const get = (type, short=false) => {
-            if (!place || !place.address_components) return null;
-            const c = place.address_components.find(ac => ac.types && ac.types.includes(type));
-            if (!c) return null;
-            return short ? (c.short_name || null) : (c.long_name || null);
-          };
-          if (place){
-            city = get('locality') || get('postal_town') || get('sublocality') || get('administrative_area_level_3');
-            county = get('administrative_area_level_2');
-            state_code = get('administrative_area_level_1', true);
-            zip = get('postal_code');
-            try {
-              lat = (typeof place.location?.lat === 'function') ? place.location.lat() : (place.geometry?.location?.lat?.() ?? place.location?.lat ?? null);
-              lon = (typeof place.location?.lng === 'function') ? place.location.lng() : (place.geometry?.location?.lng?.() ?? place.location?.lng ?? null);
-            } catch {}
-          }
-          if (!city && !county && !zip && !lat && !lon){
-            const text = pacHome.value || '';
-            if (!text.trim()) return;
-            const res = await geocode(text);
-            city = res.city; county = res.county; state_code = res.state_code; zip = res.zip; lat = res.lat; lon = res.lon;
-          }
-          if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
-            try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; state_code = state_code || rev.state_code; zip = zip || rev.zip; city = city || rev.city; } catch {}
-          }
-          const resOut = { city, county, state_code, zip, lat, lon };
-          state.pendingHomeGeo = { ...resOut };
-          try { const norm = normalizeLocationFromGeo(resOut); if (norm) pacHome.value = norm; } catch {}
-          const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
-          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
-          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
-        } catch(e){ console.warn('PAC home selection handling failed', e); }
-        };
-        pacHome.addEventListener?.('gmpx-placechange', handleHomeSelect);
-        pacHome.addEventListener?.('gmp-placeselect', handleHomeSelect);
-        pacHome.addEventListener?.('place_changed', handleHomeSelect);
-        pacHome.addEventListener?.('change', handleHomeSelect);
-        pacHome.addEventListener?.('blur', handleHomeSelect);
-        if (homeLoad) homeLoad.style.display = 'none';
-        return;
-      } else {
-        // Fallback to legacy Autocomplete on visible input
-        try {
-          const acHome = new google.maps.places.Autocomplete(homeInput, {
-            fields: ['address_components','geometry','name'],
-            componentRestrictions: { country: 'us' }
-          });
-          acHome.addListener('place_changed', async () => {
-            const p = acHome.getPlace();
-            if (!p || !p.address_components) return;
-            const get = (type, short=false) => {
-              const c = p.address_components.find(ac => ac.types.includes(type));
-              return c ? (short ? c.short_name : c.long_name) : null;
-            };
-            let city = get('locality') || get('postal_town') || get('sublocality');
-            let county = get('administrative_area_level_2');
-            const state_code = get('administrative_area_level_1', true);
-            const zip = get('postal_code');
-            let lat = p.geometry?.location?.lat?.() ?? null;
-            let lon = p.geometry?.location?.lng?.() ?? null;
-            if ((!county || county === '—') && Number.isFinite(Number(lat)) && Number.isFinite(Number(lon)) && window.ENABLE_GOOGLE_GEOCODING !== false){
-              try { const rev = await geocodeGoogleReverse(lat, lon); county = rev.county || county; city = city || rev.city; } catch {}
-            }
-            state.pendingHomeGeo = { city, county, state_code, zip, lat, lon };
-            try { const norm = normalizeLocationFromGeo(state.pendingHomeGeo); if (norm) homeInput.value = norm; } catch {}
-            const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = county || '—';
-          const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = zip || '—';
-          const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(lat, lon);
-        });
-        } catch (e){ console.warn('Legacy Home Autocomplete attach failed', e); }
-        if (homeLoad) homeLoad.style.display = 'none';
+      const el = messagesEl();
+      if (!el) return;
+      el.textContent = text || "";
+      el.classList.remove("ok", "warn", "err", "computed");
+      if (kind) el.classList.add(kind);
+      clearTimeout(msgTimer);
+      if (text) {
+        msgTimer = setTimeout(() => {
+          try {
+            el.textContent = "";
+            el.classList.remove("ok", "warn", "err", "computed");
+          } catch {}
+        }, 4000);
       }
     } catch {}
   }
 
-  const homeModal = document.getElementById('homeModal');
-  const openHomeModal = async () => {
-    const input = document.getElementById('homeInput');
-    if (input){ input.value = state.homeAddress || ''; }
-    const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
-    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords?.lat, state.homeCoords?.lon);
-    state.pendingHomeGeo = null;
-    if (homeModal){
-      state.prevFocus = document.activeElement;
-      homeModal.classList.add('open');
-      homeModal.setAttribute('aria-hidden','false');
-      try { setPageInert(homeModal); } catch {}
-      try { await ensureHomePAC(); } catch {}
-      const focusEl = document.getElementById('homePAC') || document.getElementById('homeInput');
-      if (focusEl && typeof focusEl.focus === 'function') setTimeout(()=>focusEl.focus(), 0);
+  /* =========================
+     Inert helpers
+  ========================= */
+  function setPageInert(except) {
+    for (const el of Array.from(document.body.children)) {
+      if (el === except) continue;
+      try { el.inert = true; } catch {}
     }
-  };
-  const closeHomeModal = () => {
-    if (homeModal){
-      const active = document.activeElement;
-      if (active && homeModal.contains(active) && typeof active.blur === 'function') active.blur();
-      homeModal.classList.remove('open');
-      homeModal.setAttribute('aria-hidden','true');
-      clearPageInert();
-      if (state.prevFocus && document.contains(state.prevFocus) && typeof state.prevFocus.focus === 'function'){
-        try { state.prevFocus.focus(); } catch {}
-      }
+  }
+  function clearPageInert() {
+    for (const el of Array.from(document.body.children)) {
+      try { el.inert = false; } catch {}
     }
-  };
-  const saveHome = async () => {
-    const input = document.getElementById('homeInput');
-    const raw = (input?.value || '').trim();
-    if (!raw && !state.pendingHomeGeo){ closeHomeModal(); return; }
-    let geo = state.pendingHomeGeo;
-    if (!geo && raw){ try { geo = await geocode(raw); } catch { geo = null; } }
-    if (!geo || !Number.isFinite(Number(geo.lat)) || !Number.isFinite(Number(geo.lon))){
-      alert('Could not resolve location. Please select a suggestion or enter a valid City/ZIP.');
-      return;
-    }
-    // Normalize address string
-    const norm = normalizeLocationFromGeo(geo) || raw;
-    state.homeAddress = norm;
-    localStorage.setItem('homeAddress', norm);
-    state.homeCoords = { lat: Number(geo.lat), lon: Number(geo.lon) };
-    localStorage.setItem('homeCoords', JSON.stringify(state.homeCoords));
-    state.homeZip = geo.zip || null;
-    state.homeCity = geo.city || null;
-    state.homeCounty = geo.county || null;
-    const zipEl = document.getElementById('homeZip'); if (zipEl) zipEl.textContent = state.homeZip || '—';
-    const countyEl = document.getElementById('homeCounty'); if (countyEl) countyEl.textContent = state.homeCounty || '—';
-    const coordsEl = document.getElementById('homeCoords'); if (coordsEl) coordsEl.textContent = fmtCoords(state.homeCoords.lat, state.homeCoords.lon);
+  }
+
+  /* =========================
+     Debounce
+  ========================= */
+  function debounce(fn, ms = 80) {
+    let t = 0;
+    return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+  }
+  const debouncedComputeAll = debounce(() => computeAll(), 80);
+
+  /* =========================
+     Home geocoding (no-op UI)
+  ========================= */
+  async function ensureHomeCoords() {
+    const addr = state.homeAddress || HOME_ADDRESS_DEFAULT;
+    if (!addr) { state.homeCoords = null; updateDistanceUI(); return; }
+    try {
+      const geo = await geocode(addr);
+      const lat = Number(geo?.lat), lon = Number(geo?.lon);
+      state.homeCoords = (Number.isFinite(lat) && Number.isFinite(lon)) ? { lat, lon } : null;
+    } catch { state.homeCoords = null; }
     updateDistanceUI();
-    updateDbMetaUI();
-    computeAll();
-    closeHomeModal();
-  };
-  const updateHomeBtnEl = document.getElementById('updateHomeBtn'); if (updateHomeBtnEl) updateHomeBtnEl.addEventListener('click', openHomeModal);
-  const homeSaveEl = document.getElementById('homeSave'); if (homeSaveEl) homeSaveEl.addEventListener('click', saveHome);
-  const homeCancelEl = document.getElementById('homeCancel'); if (homeCancelEl) homeCancelEl.addEventListener('click', closeHomeModal);
-  const homeCloseEl = document.getElementById('homeClose'); if (homeCloseEl) homeCloseEl.addEventListener('click', closeHomeModal);
-
-  // Backfill geo for saved vehicles (county/coords) and normalize location strings
-  async function backfillVehicleGeo(){
-    if (!state.supabase){ alert('Supabase not configured'); return; }
-    const proceed = confirm('Backfill county/coordinates for all saved vehicles?');
-    if (!proceed) return;
-    try {
-      const { data, error } = await state.supabase
-        .from('vehicles')
-        .select('id,name,location,latitude,longitude,county');
-      if (error) throw error;
-      if (!data || !data.length){ alert('No vehicles found'); return; }
-      let updated = 0, skipped = 0, failed = 0;
-      for (const v of data){
-        try {
-          const id = v.id;
-          const loc = (v.location || '').trim();
-          const haveCoords = Number.isFinite(parseFloat(v.latitude)) && Number.isFinite(parseFloat(v.longitude));
-          const haveCounty = !!(v.county && String(v.county).trim());
-          let geo = null;
-          if (loc){
-            try { geo = await geocode(loc); } catch { geo = null; }
-            // If still missing county but coords exist, try reverse geocode
-            if (geo && (!geo.county || geo.county === '—') && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
-              try { const rev = await geocodeGoogleReverse(geo.lat, geo.lon); geo = { ...geo, county: rev.county || geo.county, state_code: geo.state_code || rev.state_code, zip: geo.zip || rev.zip, city: geo.city || rev.city }; } catch {}
-            }
-          }
-          const update = {};
-          if (!haveCoords && geo && Number.isFinite(Number(geo.lat)) && Number.isFinite(Number(geo.lon))){
-            update.latitude = Number(geo.lat);
-            update.longitude = Number(geo.lon);
-          }
-          if (!haveCounty && geo && geo.county){ update.county = geo.county; }
-          if (geo){
-            const norm = normalizeLocationFromGeo(geo);
-            if (norm && norm !== loc){ update.location = norm; }
-          }
-          if (Object.keys(update).length){
-            const { error: uerr } = await state.supabase.from('vehicles').update(update).eq('id', id);
-            if (uerr) throw uerr;
-            updated++;
-          } else {
-            skipped++;
-          }
-        } catch(e){
-          console.warn('Backfill failed for vehicle', v.id, e);
-          failed++;
-        }
-      }
-      await loadVehicles();
-      // Refresh UI if currently selected vehicle is impacted
-      if ($('#vehicleSelect').value){ onVehicleSelected(); }
-      alert(`Backfill complete. Updated: ${updated}, Skipped: ${skipped}, Failed: ${failed}`);
-    } catch (e){
-      alert('Backfill failed: ' + (e.message || e));
-    }
   }
-  const backfillBtn = document.getElementById('backfillGeoBtn'); if (backfillBtn) backfillBtn.addEventListener('click', backfillVehicleGeo);
-
-  // Expose PAC helpers for debugging in Console
-  window.ensureVehiclePAC = ensureVehiclePAC;
-  window.ensureHomePAC = ensureHomePAC;
-
-  // Geocode DB location as you type (debounced)
-  const debouncedDbLoc = debounce(async () => {
-    const loc = $('#dbLocation').value.trim();
-    if (!loc) {
-      state.dbLocationGeo = null;
-      $('#dbLocationCounty').textContent = '—';
-      $('#dbLocationZip').textContent = '—';
-      $('#dbLocationCoords').textContent = '—';
-      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
-      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
-      updateDistanceUI();
-      return;
-    }
-    try {
-      const res = await geocode(loc);
-// Use ZIP from Google geocode only
-  let zipOut = res.zip || '';
-  const st = res.state_code || (res.state && /florida/i.test(res.state) ? 'FL' : null);
-      state.dbLocationGeo = { ...res, zip: zipOut };
-      $('#dbLocationCounty').textContent = res.county || '—';
-      $('#dbLocationZip').textContent = zipOut || '—';
-      $('#dbLocationCoords').textContent = fmtCoords(res.lat, res.lon);
-      // Also preview in the DB meta section
-      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = res.city || '—';
-      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = res.county || '—';
-      // If the modal city differs from selected vehicle, keep preview only; save applies it
-      // But if a vehicle is already selected, this helps confirm the new location
-      updateDistanceUI();
-      updateDbMetaUI();
-    } catch {
-      // If we have no prior geocode to show, clear; otherwise keep last good preview
-      if (!state.dbLocationGeo){
-        $('#dbLocationCounty').textContent = '—';
-        $('#dbLocationZip').textContent = '—';
-        $('#dbLocationCoords').textContent = '—';
-        const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = '—';
-        const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = '—';
-      }
-      updateDistanceUI();
-    }
-  }, 700);
-  const dbLocInput = document.getElementById('dbLocation');
-  if (window.GEOCODE_ON_INPUT === true && dbLocInput){
-    dbLocInput.addEventListener('input', debouncedDbLoc);
-  }
-  // On blur, normalize the location field to "City, ST ZIP" when resolvable
-  if (dbLocInput) dbLocInput.addEventListener('blur', async () => {
-    const el = $('#dbLocation');
-    const raw = el.value.trim();
-    if (!raw) return;
-    let geo = state.dbLocationGeo;
-    if (!geo){
-      try { geo = await geocode(raw); } catch { geo = null; }
-    }
-    if (geo){
-      // Use ZIP from Google geocode only
-      let zipOut = geo.zip || '';
-      const st = geo.state_code || (geo.state && /florida/i.test(geo.state) ? 'FL' : null);
-      const parts = [];
-      if (geo.city) parts.push(geo.city);
-      const tail = [st, zipOut].filter(Boolean).join(' ');
-      if (tail) parts.push(tail);
-      const norm = parts.join(', ').trim();
-      if (norm) el.value = norm;
-      // ensure preview notes and distance reflect the latest result
-      state.dbLocationGeo = { ...geo, zip: zipOut };
-      const cityMeta = document.getElementById('dbCity'); if (cityMeta) cityMeta.textContent = geo.city || '—';
-      const countyMeta = document.getElementById('dbCounty'); if (countyMeta) countyMeta.textContent = geo.county || '—';
-      document.getElementById('dbLocationCounty').textContent = geo.county || '—';
-      document.getElementById('dbLocationZip').textContent = zipOut || '—';
-      document.getElementById('dbLocationCoords').textContent = fmtCoords(geo.lat, geo.lon);
-      updateDistanceUI();
-      updateDbMetaUI();
-    }
-});
-
-// --- Persistence ---
-function saveCalcState(){
-  try {
-    const data = {
-      finalPrice: document.getElementById('finalPrice').value || '',
-      tradeValue: document.getElementById('tradeValue').value || '',
-      loanPayoff: document.getElementById('loanPayoff').value || '',
-      cashDown: document.getElementById('cashDown').value || '',
-      apr: document.getElementById('apr').value || '',
-      term: document.getElementById('term').value || '',
-      financeTF: !!document.getElementById('financeTF').checked,
-      dealerFees: Array.from(document.querySelectorAll('#dealerFeesList .fee-row')).map(r => ({
-        name: r.querySelector('.fee-name')?.value || '',
-        amount: r.querySelector('.fee-amount')?.value || '',
-      })),
-      govFees: Array.from(document.querySelectorAll('#govFeesList .fee-row')).map(r => ({
-        name: r.querySelector('.fee-name')?.value || '',
-        amount: r.querySelector('.fee-amount')?.value || '',
-      })),
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  } catch {}
-}
-
-function restoreCalcState(){
-  try {
-    const txt = localStorage.getItem(STORAGE_KEY);
-    if (!txt) return false;
-    const s = JSON.parse(txt);
-    const set = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-    set('finalPrice', s.finalPrice || '');
-    set('tradeValue', s.tradeValue || '');
-    set('loanPayoff', s.loanPayoff || '');
-    set('cashDown', s.cashDown || '');
-    set('apr', s.apr || '');
-    set('term', s.term || '');
-    const fin = document.getElementById('financeTF'); if (fin) fin.checked = !!s.financeTF;
-    // Fees
-    document.getElementById('dealerFeesList').innerHTML = '';
-    (s.dealerFees || []).forEach(f => addFeeRow(f.name || '', f.amount || ''));
-    document.getElementById('govFeesList').innerHTML = '';
-    (s.govFees || []).forEach(f => addGovFeeRow(f.name || '', f.amount || ''));
-    return true;
-  } catch { return false; }
-}
-  // Load Google Places Autocomplete if key provided (moved to global loadGoogleMaps)
-  
-
-  // County Rates import modal
-  const ratesModal = document.getElementById('ratesModal');
-  function openRatesModal(){
-    ratesModal.classList.add('open'); ratesModal.setAttribute('aria-hidden','false');
-    // Prefill meta inputs from current state
-    const sRate = state.countyRates?.meta?.stateRate ?? 0.06;
-    const cCap = state.countyRates?.meta?.countyCap ?? 5000;
-    document.getElementById('stateRateInput').value = String(sRate);
-    document.getElementById('countyCapInput').value = String(cCap);
-    updateRatesPreview(state.countyRates);
-  }
-  function closeRatesModal(){ ratesModal.classList.remove('open'); ratesModal.setAttribute('aria-hidden','true'); }
-  const importRatesBtn = document.getElementById('importRatesBtn');
-  if (importRatesBtn) importRatesBtn.addEventListener('click', openRatesModal);
-  const ratesCloseBtn = document.getElementById('ratesClose'); if (ratesCloseBtn) ratesCloseBtn.addEventListener('click', closeRatesModal);
-  const ratesCancelBtn = document.getElementById('ratesCancel'); if (ratesCancelBtn) ratesCancelBtn.addEventListener('click', closeRatesModal);
-  document.getElementById('loadRatesSample').addEventListener('click', () => {
-    const sampleTsv = 'County\tTotal Surtax Rate\nBrevard\t1.5%\nOrange\t0.5%\n';
-    document.getElementById('ratesInput').value = sampleTsv;
-    try {
-      const parsed = parseRatesText(sampleTsv);
-      state.pendingRatesImport = parsed;
-      updateRatesPreview(parsed);
-    } catch {}
-  });
-
-  // (Removed trade-in link handler; note is computed proactively in computeAll)
-  async function parseExcelFile(file){
-    if (typeof XLSX === 'undefined') throw new Error('XLSX library not loaded');
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: 'array' });
-    const sheet = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-    if (!rows.length) throw new Error('No rows found in sheet');
-    // Flexible header detection
-    const hdrs = Object.keys(rows[0]);
-    const { countyKey, rateKey } = detectHeaderKeys(hdrs);
-    if (!countyKey || !rateKey) throw new Error('Could not detect headers. Expected columns like "County" and "Total Surtax Rate".');
-    const counties = {};
-    for (const r of rows){
-      const rawCounty = String(r[countyKey] ?? '').replace(/county$/i,'').trim();
-      if (!rawCounty) continue;
-      const rateVal = r[rateKey];
-      const num = parseRateValue(rateVal);
-      if (!isFinite(num)) continue;
-      counties[rawCounty] = num;
-    }
-    if (!Object.keys(counties).length) throw new Error('No county rows parsed');
-    return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
-  }
-  const ratesFileInput = document.getElementById('ratesFile');
-  if (ratesFileInput) ratesFileInput.addEventListener('change', async (e) => {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    try {
-      let parsed;
-      const name = file.name.toLowerCase();
-      if (name.endsWith('.xlsx') || name.endsWith('.xls')){
-        parsed = await parseExcelFile(file);
-      } else {
-        const txt = await file.text();
-        parsed = parseRatesText(txt);
-      }
-      state.pendingRatesImport = parsed;
-      // Show preview JSON
-      document.getElementById('ratesInput').value = JSON.stringify(parsed, null, 2);
-      updateRatesPreview(parsed);
-    } catch(err){
-      alert('Failed to parse file: ' + err.message);
-    }
-  });
-  function normalizeHeader(h){
-    return String(h || '').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
-  }
-  function detectHeaderKeys(headers){
-    const countyAliases = [
-      'county', 'county name', 'buyer county', 'destination county', 'county of sale', 'county code', 'countyname', 'jurisdiction'
-    ];
-    const rateAliases = [
-      'total surtax rate', 'total surtax', 'surtax rate', 'discretionary sales surtax', 'discretionary surtax', 'local option surtax', 'local surtax', 'local rate', 'rate', 'total local rate'
-    ];
-    const norms = headers.map(h => ({ raw: h, norm: normalizeHeader(h) }));
-    const countyKey = norms.find(h => countyAliases.some(a => h.norm.includes(a)))?.raw;
-    const rateKey = norms.find(h => rateAliases.some(a => h.norm.includes(a)))?.raw;
-    return { countyKey, rateKey };
-  }
-  function parseRateValue(v){
-    if (v == null) return NaN;
-    if (typeof v === 'number'){
-      const n = v;
-      if (n <= 0.25) return n; // decimal fraction (<=25%)
-      if (n <= 25) return n / 100; // assume percent
-      return NaN;
-    }
-    let s = String(v).trim();
-    if (!s) return NaN;
-    const hasPct = /%/.test(s);
-    s = s.replace(/[^0-9.\-]/g,'');
-    let n = parseFloat(s);
-    if (!isFinite(n)) return NaN;
-    if (hasPct) return n / 100;
-    if (n <= 0.25) return n;
-    if (n <= 25) return n / 100;
-    return NaN;
-  }
-  function parseRatesText(txt){
-    // Try JSON first
-    try {
-      const obj = JSON.parse(txt);
-      if (obj && typeof obj === 'object' && obj.counties) return obj;
-    } catch {}
-    // Use SheetJS to robustly parse CSV/TSV if available
-    if (typeof XLSX !== 'undefined'){
-      try {
-        const wb = XLSX.read(txt, { type: 'string' });
-        const sheet = wb.Sheets[wb.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-        if (rows.length){
-          const hdrs = Object.keys(rows[0]);
-          const { countyKey, rateKey } = detectHeaderKeys(hdrs);
-          if (!countyKey || !rateKey) throw new Error('Could not detect County/Rate columns');
-          const counties = {};
-          for (const r of rows){
-            const c = String(r[countyKey] ?? '').replace(/county$/i,'').trim();
-            if (!c) continue;
-            const n = parseRateValue(r[rateKey]);
-            if (!isFinite(n)) continue;
-            counties[c] = n;
-          }
-          if (!Object.keys(counties).length) throw new Error('No county rows parsed');
-          return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
-        }
-      } catch {}
-    }
-    // Fallback naive TSV/CSV parser
-    const delim = (txt.match(/\t/g)?.length || 0) >= (txt.match(/,/g)?.length || 0) ? '\t' : ',';
-    const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    if (!lines.length) throw new Error('No data to import');
-    const header = lines.shift();
-    const headers = header.split(new RegExp(delim)).map(h => h.trim());
-    const { countyKey, rateKey } = detectHeaderKeys(headers);
-    const cIdx = headers.findIndex(h => h === countyKey);
-    const rIdx = headers.findIndex(h => h === rateKey);
-    if (cIdx === -1 || rIdx === -1) throw new Error('Could not find County/Rate columns');
-    const counties = {};
-    for (const line of lines){
-      const cols = line.split(new RegExp(delim)).map(c => c.trim());
-      const c = (cols[cIdx] || '').replace(/county$/i,'').trim();
-      if (!c) continue;
-      const n = parseRateValue(cols[rIdx]);
-      if (!isFinite(n)) continue;
-      counties[c] = n;
-    }
-    if (!Object.keys(counties).length) throw new Error('No county rows parsed');
-    return { meta: { stateRate: 0.06, countyCap: 5000 }, counties };
-  }
-
-  const saveRatesBtn = document.getElementById('saveRates');
-  if (saveRatesBtn) saveRatesBtn.addEventListener('click', () => {
-    try {
-      const txt = document.getElementById('ratesInput').value.trim();
-      let parsed = state.pendingRatesImport;
-      if (!parsed){
-        if (!txt) return closeRatesModal();
-        parsed = parseRatesText(txt);
-      }
-      // Override meta from inputs
-      const sRateIn = parseFloat(document.getElementById('stateRateInput').value);
-      const cCapIn = parseFloat(document.getElementById('countyCapInput').value);
-      parsed.meta = {
-        stateRate: isFinite(sRateIn) ? sRateIn : (state.countyRates?.meta?.stateRate ?? 0.06),
-        countyCap: isFinite(cCapIn) ? cCapIn : (state.countyRates?.meta?.countyCap ?? 5000),
-      };
-      // Preserve DEFAULT if user didn't include one
-      if (!parsed.counties.DEFAULT && state.countyRates?.counties?.DEFAULT){
-        parsed.counties.DEFAULT = state.countyRates.counties.DEFAULT;
-      }
-      state.countyRates = parsed;
-      localStorage.setItem('countyRates', JSON.stringify(parsed));
-      computeAll();
-      closeRatesModal();
-      state.pendingRatesImport = null;
-    } catch(err){
-      alert('Failed to import rates: ' + err.message);
-    }
-  });
-
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;' }[c]));
-  }
-  function updateRatesPreview(parsed){
-    const el = document.getElementById('ratesPreview');
+  function updateDistanceUI() {
+    const el = $("#distanceFromHome");
     if (!el) return;
-    if (!parsed || !parsed.counties){ el.innerHTML = ''; return; }
-    const entries = Object.entries(parsed.counties);
-    const limit = 15;
-    let html = '<table class="preview-table"><thead><tr><th>County</th><th>Rate</th></tr></thead><tbody>';
-    entries.slice(0, limit).forEach(([name, rate]) => {
-      const pct = (parseFloat(rate) * 100);
-      const pctStr = isFinite(pct) ? pct.toFixed(2) + '%' : '';
-      html += `<tr><td>${escapeHtml(name)}</td><td>${escapeHtml(pctStr)}</td></tr>`;
-    });
-    html += '</tbody></table>';
-    html += `<div class="hint">${entries.length > limit ? `Showing ${limit} of ${entries.length} rows` : `Total rows: ${entries.length}`}</div>`;
-    el.innerHTML = html;
+    el.textContent = "—";
   }
 
-  // Clear / Reset button
-  const clearBtn = document.getElementById('clearCalc');
-  if (clearBtn){
-    clearBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      const ids = ['finalPrice','tradeValue','loanPayoff','cashDown','apr','term'];
-      ids.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
-      const ftf = document.getElementById('financeTF'); if (ftf) ftf.checked = false;
-      document.getElementById('dealerFeesList').innerHTML = '';
-      document.getElementById('govFeesList').innerHTML = '';
-      addFeeRow();
-      addGovFeeRow();
-      localStorage.removeItem(STORAGE_KEY);
+  /* =========================
+     Vehicle modal (optional)
+  ========================= */
+  async function ensureVehiclePAC() {}
+  async function openVehicleModal(mode) {
+    const modal = document.getElementById("vehicleModal");
+    const title = document.getElementById("vehicleModalTitle");
+    if (!modal || !title) return;
+
+    if (mode === "add") {
+      title.textContent = "Add Vehicle";
+      $("#vehicleSelect") && ($("#vehicleSelect").value = "");
+      $("#dbVehicleName") && ($("#dbVehicleName").value = "");
+      $("#dbMsrp") && ($("#dbMsrp").value = "");
+    } else {
+      title.textContent = "Update Vehicle";
+      if (!$("#vehicleSelect")?.value) { alert("Select a vehicle to update"); return; }
+    }
+
+    state.prevFocus = document.activeElement;
+    modal.classList.add("open");
+    modal.setAttribute("aria-hidden", "false");
+    try { setPageInert(modal); } catch {}
+    setTimeout(() => { try { ensureVehiclePAC(); } catch {} }, 0);
+    const focusEl = document.getElementById("dbVehicleName");
+    if (focusEl?.focus) setTimeout(() => focusEl.focus(), 0);
+  }
+
+  /* =========================
+     Fee rows: add/sum helpers
+  ========================= */
+  function sumFeeList(listEl){
+    if (!listEl) return 0;
+    return $$("input.fee-amount", listEl)
+      .map(i => parseCurrency(i.value))
+      .filter(Number.isFinite)
+      .reduce((a,b)=>a+b, 0);
+  }
+
+  function recalcGovFeesTotal(){
+    const list = document.getElementById("govFeesList");
+    const total = sumFeeList(list);
+    const outEl = document.getElementById("govFeesOut") || document.getElementById("govFeesTotal");
+    if (outEl) outEl.textContent = fmtCurrency(total);
+    return total;
+  }
+
+  function addFeeRow(targetList, preset = null){
+    const row = document.createElement("div");
+    row.className = "fee-row";
+    const desc = preset?.desc || "";
+    const amt  = preset?.amount ?? "";
+    row.innerHTML = `
+      <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" value="${desc}" />
+      <input class="fee-amount" type="text" inputmode="decimal" placeholder="$0.00" aria-label="Fee amount" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
+      <button type="button" class="fee-remove" aria-label="Remove fee">✕</button>
+    `;
+    targetList.appendChild(row);
+    attachCurrencyFormatter($(".fee-amount", row));
+    $(".fee-remove", row)?.addEventListener("click", () => { row.remove(); computeAll(); });
+  }
+
+  /* =========================
+     Goal payment helper
+  ========================= */
+  function computeDownForGoal(goalMonthly, inputs) {
+    const {
+      priceForCalc, tradeValue, payoff, cashDown,
+      apr, term, dealerFeesTotal, govFeesTotal,
+      countyRate, stateRate, countyCap
+    } = inputs;
+
+    const baseBeforeFees = tradeValue > 0 ? Math.max(0, priceForCalc - tradeValue) : priceForCalc;
+    const taxableBase    = Math.max(0, baseBeforeFees + dealerFeesTotal);
+    const stateTax       = taxableBase * stateRate;      // fixed: removed stray label
+    const countyTax      = Math.min(taxableBase, countyCap) * countyRate;
+    const taxes          = stateTax + countyTax;
+
+    const r = (apr / 100 / 12) || 0;
+    const n = term || 0;
+
+    const paymentToPV = (p, r, n) => r ? p * (1 - Math.pow(1 + r, -n)) / r : p * n;
+    const neededPV    = paymentToPV(goalMonthly, r, n);
+
+    const feesTotal   = dealerFeesTotal + govFeesTotal;
+    const baseAmount  = (priceForCalc - tradeValue + payoff) - cashDown;
+    const financeTF   = $("#financeTF")?.checked ?? true;
+
+    const targetAmount = financeTF ? (neededPV - (feesTotal + taxes)) : neededPV;
+    const extraDown    = Math.max(0, baseAmount - targetAmount);
+
+    return { extraDown, taxes, feesTotal };
+  }
+
+  /* =========================
+     MSRP sourcing
+  ========================= */
+  function getMsrpFromUI(){
+    const msrpEl = document.getElementById("msrp");
+    let n = parseCurrency(msrpEl?.value ?? msrpEl?.textContent ?? "");
+    if (n > 0) return n;
+
+    const dbMsrpEl = document.getElementById("dbMsrp");
+    n = parseCurrency(dbMsrpEl?.value ?? dbMsrpEl?.textContent ?? "");
+    if (n > 0) return n;
+
+    const sel = document.getElementById("vehicleSelect");
+    const opt = sel?.selectedOptions?.[0];
+    const dataMsrp = Number(opt?.dataset?.msrp || opt?.getAttribute?.("data-msrp"));
+    if (Number.isFinite(dataMsrp) && dataMsrp > 0) return dataMsrp;
+
+    n = Number(state.selectedVehicle?.msrp);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  /* =========================
+     Trade equity output
+  ========================= */
+  function formatAccounting(n){
+    if (!Number.isFinite(n)) return "";
+    if (n < 0) return `(${fmtCurrency(Math.abs(n))})`;
+    return fmtCurrency(n);
+  }
+  function updateTradeEquity(tradeValue, payoff){
+    const out = document.getElementById("tradeEquity") || document.getElementById("tradeEquityOut");
+    if (!out) return;
+    const equity = tradeValue - payoff;
+    out.textContent = formatAccounting(equity);
+    out.classList.remove("delta-pos","delta-neg");
+    out.style.color = "";
+    if (equity > 0) out.classList.add("delta-pos");
+    else if (equity < 0) out.classList.add("delta-neg");
+  }
+
+  /* =========================
+     County rate manual override
+  ========================= */
+  function getCountyRateOverrideDecimal(){
+    const el = document.getElementById("countyRateInput");
+    if (!el) return null;
+    const p = parsePercent(el.value);
+    if (!p || p < 0) return null;
+    return p / 100; // decimal
+  }
+  function attachPercentFormatter(input){
+    if (!input) return;
+    input.addEventListener("blur", () => {
+      const p = parsePercent(input.value);
+      input.value = p ? fmtPercentPlain(p) : "";
       computeAll();
     });
+    input.addEventListener("input", debouncedComputeAll);
   }
 
-  // Initial state: restore from storage if present; otherwise start with one blank row each
-  if (!restoreCalcState()){
-    addFeeRow();
-    addGovFeeRow();
+  /* =========================
+     Taxes helper
+  ========================= */
+  function computeTaxes({ priceForCalc, tradeValue, dealerFeesTotal, stateRate, countyRate, countyCap }) {
+    const baseBeforeFees = tradeValue > 0 ? Math.max(0, priceForCalc - tradeValue) : priceForCalc;
+    const taxableBase    = Math.max(0, baseBeforeFees + dealerFeesTotal);
+    const stateTax       = taxableBase * stateRate;
+    const countyTax      = Math.min(taxableBase, countyCap) * countyRate;
+    return { baseBeforeFees, taxableBase, stateTax, countyTax, taxes: stateTax + countyTax };
   }
-  computeAll();
-  // Recompute width initially and on resize
-  computeCalcPanelWidth();
-  window.addEventListener('resize', computeCalcPanelWidth);
 
-  // Allow mobile keyboards to submit via Return/Done
-  const calcForm = document.getElementById('calcForm');
-  if (calcForm){
-    calcForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      if (document.activeElement && typeof document.activeElement.blur === 'function'){
-        document.activeElement.blur();
+  /* =========================
+     Core calculation
+  ========================= */
+  function computeAll() {
+    // Inputs
+    const fpEl       = $("#finalPrice");
+    const tradeEl    = $("#tradeValue");
+    const payoffEl   = $("#loanPayoff");
+    const cashDownEl = $("#cashDown");
+    const aprEl      = $("#apr");
+    const termEl     = $("#term");
+
+    const msrp         = getMsrpFromUI();
+    const finalPrice   = parsePriceExpression(fpEl?.value || fpEl?.textContent || "", msrp);
+    const priceForCalc = (finalPrice && finalPrice > 0) ? finalPrice : msrp;
+    if (fpEl && finalPrice < 0) { showCalcMessage("Final Sale Price can't be negative", "warn"); fpEl.value = ""; }
+
+    const tradeValue = parseCurrency(tradeEl?.value ?? "");
+    const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
+    const payoff     = tradeValue > 0 ? payoffRaw : 0;
+    const cashDown   = parseCurrency(cashDownEl?.value ?? "");
+
+    const aprPercent = parsePercent(aprEl?.value ?? aprEl?.textContent ?? ""); // % number
+    const term       = parseInt(termEl?.value ?? termEl?.textContent ?? "0", 10) || 0;
+
+    // Monthly rate (APR/12) -> #monthlyApr
+    const monthlyRateEl =
+      document.getElementById("monthlyApr") ||
+      document.getElementById("monthlyRatePct") ||
+      document.getElementById("monthlyRate");
+    if (monthlyRateEl) {
+      const monthlyPct = (aprPercent / 12) || 0; // in percent units
+      monthlyRateEl.textContent = `${monthlyPct.toFixed(4)}%`;
+    }
+
+    // Equity UI
+    updateTradeEquity(tradeValue, payoff);
+
+    // Fees
+    const dealerFeesTotal = sumFeeList(document.getElementById("dealerFeesList"));
+    const govFeesTotal    = recalcGovFeesTotal();
+    const feesTotal       = dealerFeesTotal + govFeesTotal;
+
+    // Rates
+    const userCountyRate = getCountyRateOverrideDecimal(); // decimal or null
+    const inferredCounty = state.dbLocationGeo?.county || state.vehicleCounty || "";
+    const autoCounty     = getCountyRate(inferredCounty);
+    const countyRate     = (userCountyRate ?? autoCounty.rate) || 0;
+    const defaulted      = userCountyRate == null ? autoCounty.defaulted : false;
+    state.countyRateUsed = countyRate;
+
+    const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
+    const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
+
+    // Taxes (with / without trade)
+    const tWith    = computeTaxes({ priceForCalc, tradeValue, dealerFeesTotal, stateRate, countyRate, countyCap });
+    const tNoTrade = computeTaxes({ priceForCalc, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
+    const taxes    = tWith.taxes;
+
+    // Tax Savings w/ Trade-in
+    const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
+    const taxSavingsEl = document.getElementById("taxSavingsTrade") || document.getElementById("taxSavings");
+    if (taxSavingsEl && priceForCalc > 0) {
+      taxSavingsEl.textContent = taxSavings > 0 ? `Tax Savings w/ Trade-in: ${fmtCurrency(taxSavings)}` : "";
+    }
+
+    // Totals
+    const totalTaxesFees = taxes + feesTotal;
+    const showTaxes = priceForCalc > 0;
+
+    const taxesEl = document.getElementById("taxes");
+    if (taxesEl) taxesEl.textContent = showTaxes ? fmtCurrency(taxes) : "—";
+
+    const tb = document.getElementById("taxesBreakdown");
+    if (tb) {
+      if (showTaxes) {
+        tb.textContent = `State Tax ${fmtCurrency(tWith.stateTax)} | County Tax ${fmtCurrency(tWith.countyTax)}`;
+        tb.classList.add("computed");
+      } else {
+        tb.textContent = "Enter a price to compute taxes";
+        tb.classList.remove("computed");
       }
+    }
+    const trn = document.getElementById("taxesRatesNote");
+    if (trn) {
+      const label = userCountyRate != null ? fmtPercentFromDecimal(countyRate) : `${(countyRate * 100).toFixed(2)}%`;
+      trn.textContent = `County Tax Rate = ${label}${defaulted ? " (Default)" : inferredCounty ? ` (${inferredCounty})` : ""}`;
+    }
+    const ttf = document.getElementById("totalTF") || document.getElementById("totalTaxesAndFees");
+    if (ttf) ttf.textContent = showTaxes ? fmtCurrency(totalTaxesFees) : "—";
+
+    // Amount financed & monthly
+    const financeTF      = $("#financeTF")?.checked ?? true;
+    const baseAmount     = (priceForCalc - tradeValue + payoff) - cashDown;
+    const amountFinanced = Math.max(0, financeTF ? baseAmount + taxes + feesTotal : baseAmount);
+
+    const r = (aprPercent / 100 / 12) || 0;
+    const n = term || 0;
+    const pmnt = (principal) => n > 0
+      ? (r ? principal * (r * Math.pow(1 + r, n)) / (Math.pow(1 + r, n) - 1) : principal / n)
+      : 0;
+
+    const monthly = pmnt(amountFinanced);
+
+    // "Don't finance Taxes & Fees" scenario
+    const amountFinanced_NoTF = Math.max(0, baseAmount);
+    const monthly_NoTF        = pmnt(amountFinanced_NoTF);
+    const dontFinanceSavings  = Math.max(0, monthly - monthly_NoTF);
+
+    // Baseline monthly (no trade/payoff)
+    const baseBeforeFees0 = Math.max(0, (finalPrice && finalPrice > 0 ? finalPrice : msrp));
+    const tNoTradeAgain   = computeTaxes({ priceForCalc: baseBeforeFees0, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
+    const amountFinanced0 = Math.max(0, financeTF ? (baseBeforeFees0 - 0 + 0 - cashDown) + tNoTradeAgain.taxes + feesTotal
+                                                   : (baseBeforeFees0 - 0 + 0 - cashDown));
+    const monthlyNoTrade  = pmnt(amountFinanced0);
+    const paymentDelta    = Math.max(0, monthlyNoTrade - monthly);
+
+    // Outputs
+    (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
+    (document.getElementById("monthlyPayment")  ) && (document.getElementById("monthlyPayment").textContent   = fmtCurrency(monthly));
+    (document.getElementById("monthly")         ) && (document.getElementById("monthly").textContent          = fmtCurrency(monthly)); // compatibility
+    (document.getElementById("dealerFeesTotal") ) && (document.getElementById("dealerFeesTotal").textContent  = fmtCurrency(dealerFeesTotal));
+    (document.getElementById("govFeesOut")      ) && (document.getElementById("govFeesOut").textContent       = fmtCurrency(govFeesTotal));
+
+    const outTheDoor = priceForCalc + feesTotal + taxes;
+    const dueToday   = financeTF ? Math.max(0, cashDown) : Math.max(0, cashDown + feesTotal + taxes);
+    (document.getElementById("outTheDoor")   ) && (document.getElementById("outTheDoor").textContent   = fmtCurrency(outTheDoor));
+    (document.getElementById("cashDueToday") ) && (document.getElementById("cashDueToday").textContent = fmtCurrency(dueToday));
+
+    // Savings vs MSRP
+    const savingsEl = document.getElementById("savings");
+    if (savingsEl) {
+      if (msrp > 0 && priceForCalc > 0) {
+        const savings = msrp - priceForCalc;
+        savingsEl.textContent = savings > 0
+          ? `You saved ${fmtCurrency(savings)} off MSRP`
+          : savings < 0
+            ? `Above MSRP by ${fmtCurrency(Math.abs(savings))}`
+            : `Price equals MSRP`;
+        savingsEl.classList.add("computed");
+      } else {
+        savingsEl.textContent = "";
+        savingsEl.classList.remove("computed");
+      }
+    }
+
+    // Payment savings card (if present)
+    const p0El = document.getElementById("payment0");
+    const pdEl = document.getElementById("paymentDelta");
+    const pmtSavingsEl = document.getElementById("pmtSavings");
+    if (p0El) p0El.textContent = fmtCurrency(monthlyNoTrade);
+    if (pdEl) pdEl.textContent = paymentDelta > 0 ? `-${fmtCurrency(paymentDelta)}` : fmtCurrency(0);
+    if (pmtSavingsEl) {
+      if (paymentDelta > 0) {
+        pmtSavingsEl.textContent = `Payment down by ${fmtCurrency(paymentDelta)} due to trade/taxes`;
+        pmtSavingsEl.classList.add("computed");
+      } else {
+        pmtSavingsEl.textContent = "";
+        pmtSavingsEl.classList.remove("computed");
+      }
+    }
+
+    // Amount financed note
+    const afNote = document.getElementById("amountFinancedNote");
+    if (afNote) {
+      afNote.textContent = dontFinanceSavings > 0
+        ? `Don't Finance Taxes & Fees - Save "${fmtCurrency(dontFinanceSavings)}/mo"!`
+        : "";
+    }
+
+    showCalcMessage("", "");
+  }
+
+  /* =========================
+     Event wiring
+  ========================= */
+  function attachCurrencyFormatter(input) {
+    if (!input) return;
+    input.addEventListener("blur", () => {
+      const n = parseCurrency(input.value);
+      input.value = n ? fmtCurrency(n) : "";
       computeAll();
       scheduleSave();
     });
+    input.addEventListener("input", debouncedComputeAll);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
   }
 
-  // Open Tax Formula modal
-  const openFormula = document.getElementById('openTaxFormula');
-  const formulaModal = document.getElementById('formulaModal');
-  const openFormulaModal = () => {
-    if (formulaModal){
-      // Populate current rates line
-      const sRate = state.countyRates?.meta?.stateRate ?? 0.06;
-      const cRate = (typeof state.countyRateUsed === 'number')
-        ? state.countyRateUsed
-        : getCountyRate(state.vehicleCounty || '').rate;
-      const countyLabel = state.selectedVehicle
-        ? (state.vehicleCounty || 'Default')
-        : 'Default';
-      const line = document.getElementById('formulaRatesLine');
-      if (line){
-        line.textContent = `Using ${ (sRate*100).toFixed(2) }% state + ${ (cRate*100).toFixed(2) }% county (County: ${countyLabel})`;
-      }
-      formulaModal.classList.add('open');
-      formulaModal.setAttribute('aria-hidden','false');
+  function attachPercentFormatter(input){
+    if (!input) return;
+    input.addEventListener("blur", () => {
+      const p = parsePercent(input.value);
+      input.value = p ? fmtPercentPlain(p) : "";
+      computeAll();
+    });
+    input.addEventListener("input", debouncedComputeAll);
+  }
+
+  function ensureOptionLists(){
+    // Label text
+    const financeLbl = document.getElementById("financeTFLabel") || document.querySelector('label[for="financeTF"]');
+    if (financeLbl) financeLbl.textContent = "Check Box to Finance Taxes & Fees";
+
+    // TERM via datalist (36/48/60/72) + custom ≥ 0
+    const termInput = document.getElementById("term");
+    const termDatalist = document.getElementById("termOptions");
+    if (termInput && termDatalist) {
+      const presets = [36, 48, 60, 72];
+      termDatalist.innerHTML = presets.map(n => `<option value="${n}"></option>`).join("");
+      termInput.addEventListener("blur", () => {
+        let v = parseInt(termInput.value || "0", 10);
+        if (!Number.isFinite(v) || v < 0) v = 0;
+        termInput.value = v ? String(v) : "";
+        computeAll();
+      });
+      termInput.addEventListener("input", debouncedComputeAll);
     }
-  };
-  const closeFormulaModal = () => { if (formulaModal){ formulaModal.classList.remove('open'); formulaModal.setAttribute('aria-hidden','true'); } };
-  if (openFormula){ openFormula.addEventListener('click', openFormulaModal); }
-  const fc = document.getElementById('formulaClose');
-  const fca = document.getElementById('formulaCancel');
-  if (fc) fc.addEventListener('click', closeFormulaModal);
-  if (fca) fca.addEventListener('click', closeFormulaModal);
-});
+
+    // APR presets via datalist (optional)
+    const aprInput = document.getElementById("apr");
+    const aprDatalist = document.getElementById("aprOptions");
+    if (aprInput && aprDatalist) {
+      const aprs = [2.9, 3.9, 4.9, 5.9, 6.9, 7.9];
+      aprDatalist.innerHTML = aprs.map(n => `<option value="${n}%"></option>`).join("");
+    }
+  }
+
+  function wireInputs() {
+    // Currency-like inputs
+    ["finalPrice", "tradeValue", "loanPayoff", "cashDown", "goalMonthly", "msrp"]
+      .map(id => document.getElementById(id))
+      .forEach(el => attachCurrencyFormatter(el));
+
+    // Percent inputs
+    attachPercentFormatter(document.getElementById("apr"));
+    attachPercentFormatter(document.getElementById("countyRateInput")); // optional override
+
+    // TERM live recompute
+    document.getElementById("term")?.addEventListener("input", debouncedComputeAll);
+
+    // Checkboxes/selects
+    document.getElementById("financeTF")?.addEventListener("change", computeAll);
+    document.getElementById("goalAutoApply")?.addEventListener("change", computeAll);
+
+    // Vehicle select updates MSRP
+    document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {
+      const opt  = e.currentTarget.selectedOptions?.[0];
+      const msrp = Number(opt?.dataset?.msrp || 0);
+      const name = (opt?.textContent || "").trim();
+      if (name || msrp > 0) state.selectedVehicle = { name, msrp: Number.isFinite(msrp) ? msrp : 0 };
+      computeAll();
+    });
+
+    // Dealer fees
+    const dealerList = document.getElementById("dealerFeesList");
+    document.getElementById("addFee")?.addEventListener("click", () => { if (dealerList) { addFeeRow(dealerList); computeAll(); } });
+    dealerList?.addEventListener("input", debouncedComputeAll);
+
+    // Gov fees + presets
+    const govList = document.getElementById("govFeesList");
+    document.getElementById("addGovFee")?.addEventListener("click", () => { if (govList) { addFeeRow(govList); computeAll(); } });
+    govList?.addEventListener("input", debouncedComputeAll);
+
+    const govSelect = document.getElementById("govFeePreset");
+    govSelect?.addEventListener("change", (e) => {
+      const opt = e.currentTarget.selectedOptions?.[0];
+      if (!opt || !govList) return;
+
+      // Try data-amount, value, or text content (supports "$85" etc.)
+      const tryVals = [opt.dataset.amount, opt.getAttribute("data-amount"), opt.value, opt.textContent];
+      let amount = 0;
+      for (const v of tryVals) {
+        const num = parseCurrency(v);
+        if (Number.isFinite(num) && num > 0) { amount = num; break; }
+      }
+      const desc = (opt.textContent || opt.value || "").trim() || "Gov't Fee";
+
+      if (amount > 0) {
+        addFeeRow(govList, { desc, amount });
+        e.currentTarget.selectedIndex = 0; // reset
+        $$(".fee-amount", govList).slice(-1)[0]?.focus?.();
+        computeAll();
+      }
+    });
+
+    ensureOptionLists();
+    window.addEventListener("resize", debounce(() => computeAll(), 120));
+  }
+
+  /* =========================
+     Vehicles: fetch + render
+  ========================= */
+  function renderVehicles(vehicles){
+    const sel = document.getElementById("vehicleSelect");
+    if (!sel) return;
+
+    sel.innerHTML = "";
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = vehicles.length ? "Choose a vehicle…" : "No vehicles found";
+    opt0.disabled = !vehicles.length;
+    opt0.selected = true;
+    sel.appendChild(opt0);
+
+    for (const v of vehicles){
+      const o = document.createElement("option");
+      const label = [v.year, v.make, v.model].filter(Boolean).join(" ") || v.name || "Vehicle";
+      const msrp  = Number(v.msrp ?? v.price ?? 0);
+      o.textContent = msrp > 0 ? `${label} — ${fmtCurrency(msrp)}` : label;
+      o.value = v.id ?? label.toLowerCase().replace(/\s+/g, "-");
+      o.dataset.msrp = String(Number.isFinite(msrp) ? msrp : 0);
+      sel.appendChild(o);
+    }
+  }
+
+  async function loadVehiclesAndRender(){
+    try {
+      let vehicles = [];
+      if (state.data?.listVehicles) vehicles = await state.data.listVehicles();
+
+      // Offline fallback demo seed if no rows and no Supabase
+      if ((!vehicles || vehicles.length === 0) && !state.data?.ready){
+        vehicles = [
+          { id: "demo-1", name: "Demo Sedan", year: 2022, make: "Acme", model: "S", msrp: 29995 },
+          { id: "demo-2", name: "Demo SUV",   year: 2023, make: "Acme", model: "X", msrp: 38995 }
+        ];
+        try {
+          const existing = JSON.parse(localStorage.getItem("AutoLoan.vehicles") || "[]");
+          if (existing.length === 0) localStorage.setItem("AutoLoan.vehicles", JSON.stringify(vehicles));
+          else vehicles = existing;
+        } catch {}
+      }
+
+      renderVehicles(Array.isArray(vehicles) ? vehicles : []);
+    } catch (e){
+      console.error("loadVehicles failed", e);
+      renderVehicles([]);
+    }
+  }
+
+  /* =========================
+     Init
+  ========================= */
+  document.addEventListener("DOMContentLoaded", async () => {
+    try { initDataLayer(); } catch {}
+    try { wireInputs(); } catch {}
+    try { await ensureHomeCoords(); } catch {}
+    try { await loadVehiclesAndRender(); } catch {}
+    computeAll();
+  });
+
+  // Public API (optional)
+  window.AutoLoan = Object.assign(window.AutoLoan || {}, {
+    computeAll,
+    openVehicleModal,
+    ensureHomeCoords,
+    setPageInert,
+    clearPageInert
+  });
+})();

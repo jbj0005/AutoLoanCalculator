@@ -1,20 +1,26 @@
 <!doctype html>
 <html lang="en">
-    <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Auto Loan Calculator</title>
-    <link rel="icon" type="image/png" href="favicon.png" />
-    <link rel="apple-touch-icon" href="favicon.png" />
-    <link rel="stylesheet" href="styles.css" />
-    
-    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-    <!-- Load config before app to ensure keys are available -->
-    <script defer src="config.js"></script>
-    <script defer src="app.js"></script>
-  </head>
-  <body>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Loan Calculator</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Supabase: use UMD so window.supabase is defined -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Other libs (OK to defer) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Your keys/config must load before app.js -->
+  <script defer src="config.js"></script>
+
+  <!-- App (defer so it runs after the above scripts are parsed) -->
+  <script defer src="app.js"></script>
+</head>
+ <body>
     <header class="app-header">
       <h1>Brandon's Auto Loan Calculator</h1>
       <div class="header-pills">
@@ -157,7 +163,17 @@
 
           <div class="cell">
             <div class="cell-label">Cash Down</div>
-            <div class="cell-value"><input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$5,000.00" /></div>
+            <div class="cell-value">
+              <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$5,000.00" />
+              <div class="note downpayment-note" aria-live="polite">Down Payment only reduces Amount Financed, not Taxes.</div>
+              <div class="note downpayment-goal" aria-live="polite">
+                <div class="goal-row">
+                  <span>Goal Payment:</span>
+                  <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$1,000" size="8" />
+                </div>
+                <div id="goalDownResult" class="goal-down-out"></div>
+              </div>
+            </div>
           </div>
 
           <div class="cell">

@@ -264,72 +264,35 @@ input[type="checkbox"]{width:16px; height:16px}
   min-width: 36px;
   text-align: center;
 }
-// --- Government Fees: auto-update total on preset selection and manual edits ---
-function recalcGovFeesTotal() {
-  // Sum all government-fee rows; supports either data-kind="gov" or .gov marker
-  const rows = document.querySelectorAll('.fees-list .fee-row');
-  let sum = 0;
-  rows.forEach((row) => {
-    // If rows are categorized, only include gov rows; if not categorized, include all in the list
-    if (row.dataset && row.dataset.kind && row.dataset.kind !== 'gov' && !row.classList.contains('gov')) return;
-    const amountInput = row.querySelector('input[type="number"], input.amount');
-    const val = parseFloat((amountInput && amountInput.value) || '0');
-    sum += isNaN(val) ? 0 : val;
-  });
-
-  // Update total input/display if present
-  const totalInput = document.getElementById('govFeesTotal');
-  if (totalInput) {
-    totalInput.value = sum.toFixed(2);
-    // Notify any listeners bound to the total field
-    totalInput.dispatchEvent(new Event('input', { bubbles: true }));
-  }
-  const totalOut = document.querySelector('#govFeesTotalOut, [data-outlet="govFeesTotal"], .gov-fees-total');
-  if (totalOut && !('value' in totalOut)) {
-    try {
-      totalOut.textContent = sum.toLocaleString(undefined, { style: 'currency', currency: 'USD' });
-    } catch {
-      totalOut.textContent = sum.toFixed(2);
-    }
-  }
-
-  // Recompute loan if available
-  if (typeof computeAndRender === 'function') computeAndRender();
+/* --- Goal Payment helper (under Cash Down) --- */
+.downpayment-goal{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 100%;
 }
-
-// When a preset dropdown changes, copy its numeric value into the row's amount input and recalc
-document.addEventListener('change', (e) => {
-  const sel = e.target.closest('.preset-select');
-  if (!sel) return;
-
-  const row = sel.closest('.fee-row');
-  const amountInput = row && row.querySelector('input[type="number"], input.amount');
-
-  const raw = sel.value;
-  if (raw === '' || raw === 'custom') {
-    // Allow manual entry
-    if (amountInput) amountInput.removeAttribute('readonly');
-  } else {
-    const num = parseFloat(raw);
-    if (amountInput && !Number.isNaN(num)) {
-      amountInput.value = num.toFixed(2);
-      // Fire input so any other bindings run
-      amountInput.dispatchEvent(new Event('input', { bubbles: true }));
-    }
-  }
-
-  recalcGovFeesTotal();
-});
-
-// If the user types into a gov-fee amount field, keep total live
-document.addEventListener('input', (e) => {
-  const row = e.target.closest('.fee-row');
-  if (!row) return;
-  // Only recalc for gov rows if categorized; otherwise recalc for all
-  if (!row.dataset || !row.dataset.kind || row.dataset.kind === 'gov' || row.classList.contains('gov')) {
-    recalcGovFeesTotal();
-  }
-});
-
-// Initialize total on page load in case there are pre-filled values
-window.addEventListener('DOMContentLoaded', recalcGovFeesTotal);
+.downpayment-goal .goal-row{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+.downpayment-goal .goal-input{
+  width: auto;
+  max-width: 8ch; /* roughly enough for "$12,345" */
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+.goal-down-out{
+  display: block;
+  width: 100%;
+  font: inherit;        /* match .note font size */
+  line-height: 1.25;
+  margin-top: 2px;
+  word-break: break-word;
+}
+/* NOTE: JavaScript was removed from this CSS file because CSS parsers do not accept JS or '//' comments;
+   move the following script into a separate JS file (for example: /Users/brandon/Documents/AutoLoan/govfees.js)
+   and include it via a <script src="govfees.js"></script> in your HTML. */
