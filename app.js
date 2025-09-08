@@ -52,9 +52,21 @@
     state.data = sb ? {
       ready: true,
       async listVehicles(){
-        const { data, error } = await sb.from("vehicles").select("*").order("created_at", { ascending: false });
-        if (error) throw error;
-        return data || [];
+        // Try ordered by created_at; if that column doesn't exist, fall back to unordered select
+        try {
+          let query = sb.from("vehicles").select("*");
+          let { data, error } = await query.order("created_at", { ascending: false });
+          if (error) {
+            console.warn("listVehicles: order by created_at failed, retrying without order", error);
+            const res2 = await sb.from("vehicles").select("*");
+            if (res2.error) throw res2.error;
+            return res2.data || [];
+          }
+          return data || [];
+        } catch (e) {
+          console.error("loadVehicles (supabase) failed", e);
+          throw e;
+        }
       },
       async saveVehicle(v){
         const { data, error } = await sb.from("vehicles").insert(v).select().single();
@@ -704,12 +716,17 @@
     if (!sel) return;
 
     sel.innerHTML = "";
+    const hasRows = Array.isArray(vehicles) && vehicles.length > 0;
     const opt0 = document.createElement("option");
     opt0.value = "";
-    opt0.textContent = vehicles.length ? "Choose a vehicle…" : "No vehicles found";
-    opt0.disabled = !vehicles.length;
+    opt0.textContent = hasRows ? "Choose a vehicle…" : (state.data?.ready
+      ? "No vehicles found (check RLS/policies)"
+      : "No vehicles found (using local cache)");
+    opt0.disabled = !hasRows; // allow selection only when there are rows
     opt0.selected = true;
     sel.appendChild(opt0);
+
+    if (!hasRows) return;
 
     for (const v of vehicles){
       const o = document.createElement("option");
@@ -727,6 +744,10 @@
       let vehicles = [];
       if (state.data?.listVehicles) vehicles = await state.data.listVehicles();
 
+      if ((!vehicles || vehicles.length === 0) && state.data?.ready) {
+        console.warn("Supabase returned 0 rows for 'vehicles'. If this is unexpected, verify: (1) table name = 'public.vehicles', (2) RLS enabled with a SELECT policy for anon, (3) API schema exposure, (4) CORS/API URL & key.");
+      }
+
       // Offline fallback demo seed if no rows and no Supabase
       if ((!vehicles || vehicles.length === 0) && !state.data?.ready){
         vehicles = [
@@ -742,7 +763,7 @@
 
       renderVehicles(Array.isArray(vehicles) ? vehicles : []);
     } catch (e){
-      console.error("loadVehicles failed", e);
+      console.error("loadVehiclesAndRender failed", e);
       renderVehicles([]);
     }
   }
