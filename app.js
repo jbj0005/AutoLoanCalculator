@@ -49,10 +49,15 @@
       ? window.supabase.createClient(url, key)
       : null;
 
-    state.data = sb ? {
+    if (!sb) {
+      state.data = null;
+      setSupabaseStatus(false);
+      return;
+    }
+
+    state.data = {
       ready: true,
       async listVehicles(){
-        // Prefer newest-first by inserted_at; fall back if column is missing
         try {
           let query = sb.from("vehicles").select("*");
           let { data, error } = await query.order("inserted_at", { ascending: false });
@@ -71,25 +76,42 @@
           throw e;
         }
       },
-      async saveVehicle(v){
-        const { data, error } = await sb.from("vehicles").insert(v).select().single();
+
+      async createVehicle({ name, msrp }){
+        const { data, error } = await sb
+          .from('vehicles')
+          .insert({ name, msrp })
+          .select('*')
+          .single();
         if (error) throw error;
         return data;
-      }
-    } : {
-      ready: false,
-      async listVehicles(){
-        try { return JSON.parse(localStorage.getItem(DATA_KEYS.vehicles) || "[]"); }
-        catch { return []; }
       },
+
+      async updateVehicle({ id, name, msrp }){
+        const { data, error } = await sb
+          .from('vehicles')
+          .update({ name, msrp })
+          .eq('id', id)
+          .select('*')
+          .single();
+        if (error) throw error;
+        return data;
+      },
+
+      async deleteVehicle(id){
+        const { error } = await sb
+          .from('vehicles')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        return true;
+      },
+
       async saveVehicle(v){
-        const list = await this.listVehicles();
-        list.unshift({ id: crypto?.randomUUID?.() || Date.now(), ...v });
-        localStorage.setItem(DATA_KEYS.vehicles, JSON.stringify(list));
-        return list[0];
+        // kept for backward-compat; delegates to createVehicle
+        return this.createVehicle(v);
       }
     };
-
     setSupabaseStatus(!!sb);
   }
 
@@ -237,25 +259,45 @@ function parsePriceExpression(raw, msrp = 0) {
   async function openVehicleModal(mode) {
     const modal = document.getElementById("vehicleModal");
     const title = document.getElementById("vehicleModalTitle");
+    const nameI = document.getElementById("dbVehicleName");
+    const msrpI = document.getElementById("dbMsrp");
     if (!modal || !title) return;
 
-    if (mode === "add") {
-      title.textContent = "Add Vehicle";
-      $("#vehicleSelect") && ($("#vehicleSelect").value = "");
-      $("#dbVehicleName") && ($("#dbVehicleName").value = "");
-      $("#dbMsrp") && ($("#dbMsrp").value = "");
+    const sel = document.getElementById('vehicleSelect');
+    modal.dataset.mode = (mode === 'update') ? 'update' : 'add';
+    modal.dataset.id = '';
+
+    if (mode === 'update') {
+      title.textContent = 'Update Vehicle';
+      const opt = sel?.selectedOptions?.[0];
+      const id = opt?.value || '';
+      if (!id) { alert('Select a vehicle to update'); return; }
+      modal.dataset.id = id;
+      if (nameI) nameI.value = (opt?.textContent || '').replace(/\s+—\s+\$.*$/, '').trim();
+      if (msrpI) msrpI.value = opt?.dataset?.msrp ? fmtCurrency(Number(opt.dataset.msrp)) : '';
     } else {
-      title.textContent = "Update Vehicle";
-      if (!$("#vehicleSelect")?.value) { alert("Select a vehicle to update"); return; }
+      title.textContent = 'Add Vehicle';
+      if (nameI) nameI.value = '';
+      if (msrpI) msrpI.value = '';
+      if (sel) sel.value = '';
     }
 
     state.prevFocus = document.activeElement;
-    modal.classList.add("open");
-    modal.setAttribute("aria-hidden", "false");
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
     try { setPageInert(modal); } catch {}
     setTimeout(() => { try { ensureVehiclePAC(); } catch {} }, 0);
-    const focusEl = document.getElementById("dbVehicleName");
+    const focusEl = document.getElementById('dbVehicleName');
     if (focusEl?.focus) setTimeout(() => focusEl.focus(), 0);
+  }
+
+  function closeVehicleModal(){
+    const modal = document.getElementById('vehicleModal');
+    if (!modal) return;
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+    try { clearPageInert(); } catch {}
+    try { state.prevFocus?.focus?.(); } catch {}
   }
 
   /* =========================
@@ -503,6 +545,15 @@ if (taxSavingsEl) {
     taxSavingsEl.setAttribute("aria-live", "polite");
   }
 }
+    // Cash Difference = Final Sale Price − Trade-in Value (base before fees)
+    try {
+      const cashDiffVal = Math.max(0, (priceForCalc || 0) - (tradeValue || 0));
+      const cashDiffEl = document.getElementById("cashDifference");
+      if (cashDiffEl) {
+        cashDiffEl.textContent = fmtCurrency(cashDiffVal);
+        cashDiffEl.classList.add("computed");
+      }
+    } catch {}
     // Totals
     const totalTaxesFees = taxes + feesTotal;
     const showTaxes = priceForCalc > 0;
@@ -518,6 +569,17 @@ if (taxSavingsEl) {
       } else {
         tb.textContent = "Enter a price to compute taxes";
         tb.classList.remove("computed");
+      }
+    }
+    // Show the exact taxable base under Taxes
+    const taxableBaseNote = document.getElementById("taxableBaseNote");
+    if (taxableBaseNote) {
+      if (showTaxes) {
+        taxableBaseNote.textContent = `Taxable Base — ${fmtCurrency(tWith.taxableBase)}`;
+        taxableBaseNote.classList.add("computed");
+      } else {
+        taxableBaseNote.textContent = "Taxable Base — —";
+        taxableBaseNote.classList.remove("computed");
       }
     }
     const trn = document.getElementById("taxesRatesNote");
@@ -644,13 +706,14 @@ try {
     // Recommendation note below Amount Financed (pmtSavings)
     const pmtSavingsEl = document.getElementById("pmtSavings");
     if (pmtSavingsEl) {
+      
       // when checked, we are currently financing T&F -> recommend paying cash
       if (financeTF) {
         pmtSavingsEl.textContent = `Pay Cash for Taxes & Fees to Save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
         pmtSavingsEl.classList.toggle("computed", true);
       } else {
         // when unchecked, user is already paying T&F cash -> congratulate
-        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} by paying Cash for your Taxes & Fees`;
+        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month`;
         pmtSavingsEl.classList.toggle("computed", true);
       }
     }
@@ -923,6 +986,79 @@ const onFPChange = () => {
       }
     });
 
+    // Add Vehicle
+    document.getElementById('addVehicleBtn')?.addEventListener('click', (e)=>{
+      e.preventDefault();
+      openVehicleModal('add');
+    });
+
+    // Update Vehicle
+    document.getElementById('updateVehicleBtn')?.addEventListener('click', (e)=>{
+      e.preventDefault();
+      openVehicleModal('update');
+    });
+
+    // Delete Vehicle
+    document.getElementById('deleteVehicle')?.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const sel = document.getElementById('vehicleSelect');
+      const id = sel?.value;
+      if (!id) { alert('Select a vehicle first.'); return; }
+      if (!confirm('Delete this vehicle?')) return;
+      try {
+        await state.data.deleteVehicle(id);
+        await loadVehiclesAndRender();
+        if (sel) sel.value = '';
+        const sName = document.getElementById('summaryVehicle');
+        const sMsrp = document.getElementById('summaryMsrp');
+        if (sName) sName.textContent = '—';
+        if (sMsrp) sMsrp.textContent = '—';
+        state.selectedVehicle = null;
+        computeAll();
+      } catch(err){
+        console.error('deleteVehicle failed', err);
+        alert('Failed to delete vehicle.');
+      }
+    });
+
+    // Modal controls
+    document.getElementById('modalClose')?.addEventListener('click', (e)=>{ e.preventDefault(); closeVehicleModal(); });
+    document.getElementById('modalCancel')?.addEventListener('click', (e)=>{ e.preventDefault(); closeVehicleModal(); });
+    document.getElementById('saveVehicle')?.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const modal = document.getElementById('vehicleModal');
+      const mode = modal?.dataset.mode || 'add';
+      const id   = modal?.dataset.id || '';
+      const nameI = document.getElementById('dbVehicleName');
+      const msrpI = document.getElementById('dbMsrp');
+      const name  = nameI?.value?.trim();
+      const msrp  = msrpI?.value ? parseCurrency(msrpI.value) : null;
+      if (!name) { alert('Please enter a vehicle name.'); return; }
+      try {
+        if (mode === 'update') {
+          if (!id) { alert('Missing vehicle id'); return; }
+          await state.data.updateVehicle({ id, name, msrp });
+        } else {
+          await state.data.createVehicle({ name, msrp });
+        }
+        closeVehicleModal();
+        await loadVehiclesAndRender();
+        // Reselect the updated/created row if possible
+        const sel = document.getElementById('vehicleSelect');
+        if (sel) {
+          if (mode === 'update' && id) sel.value = String(id);
+          if (mode === 'add' && name) {
+            const opt = Array.from(sel.options).find(o => (o.textContent || '').startsWith(name));
+            if (opt) sel.value = opt.value;
+          }
+          sel.dispatchEvent(new Event('change'));
+        }
+      } catch(err){
+        console.error('saveVehicle failed', err);
+        alert('Failed to save vehicle.');
+      }
+    });
+
     // Clear button resets the calculator cleanly
     document.getElementById("clearCalc")?.addEventListener("click", (e) => {
       e.preventDefault();
@@ -954,11 +1090,13 @@ const onFPChange = () => {
     if (!hasRows) return;
 
     for (const v of vehicles){
-      const o = document.createElement("option");
-      const label = [v.year, v.make, v.model].filter(Boolean).join(" ") || v.name || "Vehicle";
+      const o = document.createElement('option');
+      const label = [v.year, v.make, v.model].filter(Boolean).join(' ') || v.name || 'Vehicle';
       const msrp  = Number(v.msrp ?? v.price ?? 0);
       o.textContent = msrp > 0 ? `${label} — ${fmtCurrency(msrp)}` : label;
-      o.value = v.id ?? label.toLowerCase().replace(/\s+/g, "-");
+      const idVal = (v.id != null) ? String(v.id) : label.toLowerCase().replace(/\s+/g, '-');
+      o.value = idVal;
+      o.dataset.id = idVal;
       o.dataset.msrp = String(Number.isFinite(msrp) ? msrp : 0);
       sel.appendChild(o);
     }
