@@ -50,8 +50,7 @@
       </section>
 
       <!-- Current Vehicle Summary -->
-      <section class="summary" id="vehicleSummary">
-        <div class="item"><span class="label">Vehicle:</span> <span class="value" id="summaryVehicle">—</span></div>
+      <section class="summary cell-label" id="vehicleSummary">        <div class="item"><span class="label">Vehicle:</span> <span class="value" id="summaryVehicle">—</span></div>
         <div class="item"><span class="label">MSRP / Asking Price:</span> <span class="value" id="summaryMsrp">—</span></div>
       </section>
 
@@ -274,7 +273,9 @@
             <input id="ratesFile" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" />
           </div>
           <div class="hint">Paste either JSON or copy-paste from Excel/CSV/TSV (must include County and Rate columns). Headers like "County", "Rate", or "Surtax" are detected automatically.</div>
-          <textarea id="ratesInput" rows="12" style="width:100%; background:#0f1319; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px" placeholder='County	Rate%\nBrevard	1.5%\nOrange	0.5%'></textarea>
+          <textarea id="ratesInput" rows="12" style="width:100%; background:#0f1319; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px" placeholder='County	Rate%
+Brevard	1.5%
+Orange	0.5%'></textarea>
           <div class="rates-preview">
             <div class="hint">Preview (first 15 rows)</div>
             <div id="ratesPreview"></div>

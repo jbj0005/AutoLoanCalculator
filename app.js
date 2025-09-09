@@ -120,19 +120,43 @@
   }
 
   // Allows "msrp - 1000" or "30000*0.97"
-  function parsePriceExpression(raw, msrp = 0) {
-    if (!raw) return 0;
-    let s = String(raw).trim().replace(/,/g, "").replace(/\$/g, "");
-    if (/msrp/i.test(s)) s = s.replace(/msrp/ig, String(msrp));
-    if (!/^[0-9+\-*/().\s]*$/.test(s)) return 0; // whitelist
-    try {
-      // eslint-disable-next-line no-new-func
-      const val = Function(`"use strict";return (${s || 0});`)();
-      const n = Number(val);
-      return Number.isFinite(n) ? n : 0;
-    } catch { return 0; }
+function parsePriceExpression(raw, msrp = 0) {
+  if (!raw) return 0;
+  let s = String(raw).trim().replace(/,/g, "").replace(/\$/g, "");
+
+  // Shorthand percents relative to MSRP: "+6%" / "-6%"
+  if ((/^[-+]\s*\d+(?:\.\d+)?\s*%\s*$/i.test(s)) && msrp > 0) {
+    const sign = s.trim().startsWith('-') ? -1 : 1;
+    const p = parseFloat(s.replace(/[^0-9.]/g, '')) / 100;
+    return msrp * (1 + sign * p);
   }
 
+  // Shorthand dollars relative to MSRP: "+7500" / "-7500"
+  if ((/^[-+]\s*\d/.test(s)) && msrp > 0 && !/msrp/i.test(s)) {
+    s = `${msrp}${s}`; // e.g., "85000-7500"
+  }
+
+  // Expand "msrp - 6%" => "msrp * (1 - 0.06)"
+  s = s.replace(/msrp\s*([+\-])\s*(\d+(?:\.\d+)?)\s*%/ig, (_m, op, num) =>
+    `(${msrp}) * (1 ${op} ${parseFloat(num)/100})`
+  );
+
+  // Replace remaining MSRP tokens with numeric value
+  if (/msrp/i.test(s)) s = s.replace(/msrp/ig, String(msrp));
+
+  // Convert standalone percents (e.g., "5%" -> "(0.05)")
+  s = s.replace(/(\d+(?:\.\d+)?)%/g, (_m, num) => `(${parseFloat(num)/100})`);
+
+  // Whitelist numeric/expression characters
+  if (!/^[0-9+\-*/().\s]*$/.test(s)) return 0;
+
+  try {
+    // eslint-disable-next-line no-new-func
+    const val = Function(`"use strict";return (${s || 0});`)();
+    const n = Number(val);
+    return Number.isFinite(n) ? n : 0;
+  } catch { return 0; }
+}
   /* =========================
      External hooks (safe no-ops)
   ========================= */
@@ -321,22 +345,21 @@
   /* =========================
      Vehicle summary output
   ========================= */
-  function updateVehicleSummary(){
-    const el = document.getElementById("vehicleSummary");
-    if (!el) return;
-    const v = state.selectedVehicle || {};
-    const hasName = !!(v.name && v.name.trim());
-    const hasMsrp = Number.isFinite(v.msrp) && v.msrp > 0;
 
-    if (hasName || hasMsrp){
-      const label = hasName ? v.name.trim() : "Selected Vehicle";
-      el.textContent = hasMsrp ? `${label} — ${fmtCurrency(v.msrp)}` : label;
-      el.classList.add("computed");
-    } else {
-      el.textContent = ""; // clear when nothing selected
-      el.classList.remove("computed");
-    }
-  }
+function updateVehicleSummary(){
+  const wrap = document.getElementById("vehicleSummary");
+  const nameEl = document.getElementById("summaryVehicle");
+  const msrpEl = document.getElementById("summaryMsrp");
+  if (!wrap) return;
+  const v = state.selectedVehicle || {};
+  const hasName = !!(v.name && v.name.trim());
+  const hasMsrp = Number.isFinite(v.msrp) && v.msrp > 0;
+
+  if (nameEl) nameEl.textContent = hasName ? v.name.trim() : "—";
+  if (msrpEl) msrpEl.textContent = hasMsrp ? fmtCurrency(v.msrp) : "—";
+
+  wrap.classList.toggle("computed", !!(hasName || hasMsrp));
+}
 
   /* =========================
      Trade equity output
@@ -402,11 +425,16 @@
     const goalEl     = $("#goalMonthly");
     const autoApplyGoal = $("#goalAutoApply")?.checked ?? false;
 
-    const msrp         = getMsrpFromUI();
-    const finalPrice   = parsePriceExpression(fpEl?.value || fpEl?.textContent || "", msrp);
-    const priceForCalc = (finalPrice && finalPrice > 0) ? finalPrice : msrp;
-    if (fpEl && finalPrice < 0) { showCalcMessage("Final Sale Price can't be negative", "warn"); fpEl.value = ""; }
-
+        if (fpEl && /msrp/i.test(fpEl.value || "")) { state._fpDirty = true; }
+    const msrp       = getMsrpFromUI();
+    const finalPrice = parsePriceExpression(fpEl?.value || fpEl?.textContent || "", msrp);
+    let priceForCalc = msrp;
+    if (finalPrice > 0) {
+      priceForCalc = finalPrice;
+    } else if (finalPrice < 0) {
+      showCalcMessage("Final Sale Price can't be negative — clamped to $0", "warn");
+      priceForCalc = 0; // keep the input text; just clamp for the math
+    }
     const tradeValue = parseCurrency(tradeEl?.value ?? "");
     const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
     const payoff     = tradeValue > 0 ? payoffRaw : 0;
@@ -454,11 +482,21 @@
     const tNoTrade = computeTaxes({ priceForCalc, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
     const taxes    = tWith.taxes;
 
-    // Tax Savings w/ Trade-in
+    // Tax Savings w/ Trade-in — show under Trade-in Value label
     const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
     const taxSavingsEl = document.getElementById("taxSavingsTrade") || document.getElementById("taxSavings");
-    if (taxSavingsEl && priceForCalc > 0) {
-      taxSavingsEl.textContent = taxSavings > 0 ? `Tax Savings w/ Trade-in: ${fmtCurrency(taxSavings)}` : "";
+    if (taxSavingsEl) {
+      if (tradeValue > 0) {
+        if (priceForCalc > 0) {
+          taxSavingsEl.textContent = `Tax Savings w/ Trade-in: ${fmtCurrency(taxSavings)}`;
+        } else {
+          taxSavingsEl.textContent = `Tax Savings w/ Trade-in: ${fmtCurrency(0)}`; // until price provided
+        }
+        taxSavingsEl.classList.add("computed");
+      } else {
+        taxSavingsEl.textContent = "";
+        taxSavingsEl.classList.remove("computed");
+      }
     }
 
     // Totals
@@ -499,12 +537,6 @@
     // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
-    // Debug hook (non-UI): quick probe in console when needed
-    window.__autoLoanDbg = {
-      aprPercent, term, r, n, amountFinanced, priceForCalc, tradeValue, payoff, cashDown,
-      dealerFeesTotal, govFeesTotal, taxes, dontFinanceSavings
-    };
-
     // 0% APR reference (same principal & term)
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
@@ -513,6 +545,12 @@
     const amountFinanced_NoTF = Math.max(0, baseAmount);
     const monthly_NoTF        = pmnt(amountFinanced_NoTF);
     const dontFinanceSavings  = Math.max(0, monthly - monthly_NoTF);
+
+    // Debug hook (non-UI): quick probe in console when needed
+    window.__autoLoanDbg = {
+      aprPercent, term, r, n, amountFinanced, priceForCalc, tradeValue, payoff, cashDown,
+      dealerFeesTotal, govFeesTotal, taxes, dontFinanceSavings
+    };
 
     // Baseline monthly (no trade/payoff) — retained for other UI blocks if present
     const baseBeforeFees0 = Math.max(0, (finalPrice && finalPrice > 0 ? finalPrice : msrp));
@@ -616,12 +654,27 @@
   ========================= */
   function attachCurrencyFormatter(input) {
     if (!input) return;
-    input.addEventListener("blur", () => {
-      const n = parseCurrency(input.value);
-      input.value = n ? fmtCurrency(n) : "";
-      computeAll();
-      scheduleSave();
-    });
+input.addEventListener("blur", () => {
+  if (input.id === "finalPrice") {
+    const raw = input.value;
+    const msrp = getMsrpFromUI();
+    const usedExpr = /msrp/i.test(raw || "") || /^\s*[+\-]/.test(raw || "") || /%/.test(raw || "");
+    const v = parsePriceExpression(raw, msrp);
+    if (usedExpr) {
+      state.finalPriceWasExpr = true;
+      state.finalPriceExprRaw = raw;   // save the original text so we can re-evaluate on vehicle change
+    } else {
+      state.finalPriceWasExpr = false;
+      state.finalPriceExprRaw = null;
+    }
+    input.value = v ? fmtCurrency(v) : "";  // latch evaluated value into the field
+  } else {
+    const n = parseCurrency(input.value);
+    input.value = n ? fmtCurrency(n) : "";
+  }
+  computeAll();
+  scheduleSave();
+});
     input.addEventListener("input", debouncedComputeAll);
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
   }
@@ -694,7 +747,27 @@
 
     // TERM live recompute (also handled in ensureOptionLists)
     document.getElementById("term")?.addEventListener("input", debouncedComputeAll);
-
+    // Final Sale Price — realtime recompute (supports formula typing)
+    (function(){
+  const fp = document.getElementById("finalPrice");
+  if (!fp) return;
+const onFPChange = () => {
+  try {
+    const val = fp.value || "";
+    const usedExpr = /msrp/i.test(val) || /^\s*[+\-]/.test(val) || /%/.test(val);
+    state._fpDirty = true;
+    if (usedExpr) {
+      state.finalPriceWasExpr = true;
+      state.finalPriceExprRaw = val;
+    }
+    computeAll();
+  } catch(e) { console.error(e); }
+};
+  fp.addEventListener("input", onFPChange);
+  fp.addEventListener("change", onFPChange);
+  fp.addEventListener("blur", onFPChange);
+  fp.addEventListener("keyup", (e) => { if (e.key === "Enter") onFPChange(); });
+  })();
     // Checkboxes/selects
     // Default: Finance Taxes & Fees starts checked
     const financeTFBox = document.getElementById("financeTF");
@@ -703,14 +776,23 @@
     document.getElementById("goalAutoApply")?.addEventListener("change", computeAll);
 
     // Vehicle select updates MSRP
-    document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {
-      const opt  = e.currentTarget.selectedOptions?.[0];
+    document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {      const opt  = e.currentTarget.selectedOptions?.[0];
       const msrp = Number(opt?.dataset?.msrp || 0);
       const name = (opt?.textContent || "").trim();
       if (name || msrp > 0) state.selectedVehicle = { name, msrp: Number.isFinite(msrp) ? msrp : 0 };
       updateVehicleSummary();
-      computeAll();
-    });
+
+      // If the Final Price was entered as an MSRP-based expression, re-evaluate for the new vehicle MSRP
+      try {
+        const msrpNow = Number.isFinite(Number(state.selectedVehicle?.msrp)) ? Number(state.selectedVehicle.msrp) : getMsrpFromUI();
+        if (state.finalPriceWasExpr && state.finalPriceExprRaw && msrpNow > 0) {
+          const fpEl = document.getElementById("finalPrice");
+          const evaluated = parsePriceExpression(state.finalPriceExprRaw, msrpNow);
+          if (fpEl) fpEl.value = evaluated ? fmtCurrency(evaluated) : "";
+        }
+      } catch {}
+
+      computeAll();});
 
     // Dealer fees
     const dealerList = document.getElementById("dealerFeesList");
