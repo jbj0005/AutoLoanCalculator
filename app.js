@@ -319,6 +319,26 @@
   }
 
   /* =========================
+     Vehicle summary output
+  ========================= */
+  function updateVehicleSummary(){
+    const el = document.getElementById("vehicleSummary");
+    if (!el) return;
+    const v = state.selectedVehicle || {};
+    const hasName = !!(v.name && v.name.trim());
+    const hasMsrp = Number.isFinite(v.msrp) && v.msrp > 0;
+
+    if (hasName || hasMsrp){
+      const label = hasName ? v.name.trim() : "Selected Vehicle";
+      el.textContent = hasMsrp ? `${label} — ${fmtCurrency(v.msrp)}` : label;
+      el.classList.add("computed");
+    } else {
+      el.textContent = ""; // clear when nothing selected
+      el.classList.remove("computed");
+    }
+  }
+
+  /* =========================
      Trade equity output
   ========================= */
   function formatAccounting(n){
@@ -392,8 +412,11 @@
     const payoff     = tradeValue > 0 ? payoffRaw : 0;
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
-    const aprPercent = parsePercent(aprEl?.value ?? aprEl?.textContent ?? ""); // % number
-    const term       = parseInt(termEl?.value ?? termEl?.textContent ?? "0", 10) || 0;
+    // APR & TERM with functional defaults if inputs are blank
+    const _aprParsed  = parsePercent(aprEl?.value ?? aprEl?.textContent ?? ""); // % number
+    const _termParsed = parseInt(termEl?.value ?? termEl?.textContent ?? "0", 10) || 0;
+    const aprPercent  = _aprParsed || 6.5;  // default to 6.5% for calc if user left blank
+    const term        = _termParsed || 72;  // default to 72 months for calc if user left blank
 
     // Monthly rate (APR/12) -> #monthlyApr
     const monthlyRateEl =
@@ -476,6 +499,12 @@
     // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
+    // Debug hook (non-UI): quick probe in console when needed
+    window.__autoLoanDbg = {
+      aprPercent, term, r, n, amountFinanced, priceForCalc, tradeValue, payoff, cashDown,
+      dealerFeesTotal, govFeesTotal, taxes, dontFinanceSavings
+    };
+
     // 0% APR reference (same principal & term)
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
@@ -493,18 +522,21 @@
     const monthlyNoTrade  = pmnt(amountFinanced0);
     const paymentDelta    = Math.max(0, monthlyNoTrade - monthly);
 
-    // Goal Payment: compute extra cash down required
+    // Goal Payment: compute extra cash down required to meet target monthly
     const goalMonthly = parseCurrency(goalEl?.value ?? "");
     const goalDownOut = document.getElementById("goalDownNeeded") || document.getElementById("goalDownOut");
     if (goalMonthly > 0 && n > 0) {
-      const { extraDown } = computeDownForGoal(goalMonthly, {
-        priceForCalc, tradeValue, payoff, cashDown,
-        apr: aprPercent, term,
-        dealerFeesTotal, govFeesTotal,
-        countyRate, stateRate, countyCap
-      });
+      // Invert PMT to get principal from desired payment
+      const pow = Math.pow(1 + r, n);
+      const principalNeeded = r ? (goalMonthly * (pow - 1) / (r * pow)) : (goalMonthly * n);
 
-      if (goalDownOut) goalDownOut.textContent = extraDown > 0 ? fmtCurrency(extraDown) : fmtCurrency(0);
+      const currentPrincipal = amountFinanced; // reflects financeTF choice above
+      const extraDown = Math.max(0, currentPrincipal - principalNeeded);
+
+      if (goalDownOut) goalDownOut.textContent = fmtCurrency(extraDown);
+      if (goalDownOut && goalDownOut.classList) {
+        goalDownOut.classList.toggle("computed", extraDown > 0);
+      }
 
       if (autoApplyGoal && !state._applyingGoalDown) {
         state._applyingGoalDown = true;
@@ -517,7 +549,6 @@
     } else if (goalDownOut) {
       goalDownOut.textContent = "";
     }
-
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
     (document.getElementById("monthlyPayment")  ) && (document.getElementById("monthlyPayment").textContent   = fmtCurrency(monthly));
@@ -557,7 +588,7 @@
     const pmtSavingsEl = document.getElementById("pmtSavings");
     if (pmtSavingsEl) {
       if (dontFinanceSavings > 0) {
-        pmtSavingsEl.textContent = `Recommendation: Pay Taxes & Fees upfront! You'll save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
+        pmtSavingsEl.textContent = `You'll save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
         pmtSavingsEl.classList.add("computed");
       } else {
         pmtSavingsEl.textContent = "";
@@ -565,13 +596,17 @@
       }
     }
 
-    // Amount financed note — updated phrasing
+    // Amount financed note — show savings ONLY when NOT financing T&F
     const afNote = document.getElementById("amountFinancedNote");
     if (afNote) {
-      afNote.textContent = dontFinanceSavings > 0
-        ? `Pay Taxes & Fees! You'll save ${fmtCurrency(dontFinanceSavings)} Per Month`
-        : "";
+      if (!financeTF && dontFinanceSavings > 0) {
+        afNote.textContent = `You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month`;
+      } else {
+        afNote.textContent = ""; // no note when financing is checked
+      }
     }
+    // Keep vehicle summary in sync with latest MSRP/name
+    try { updateVehicleSummary(); } catch {}
 
     showCalcMessage("", "");
   }
@@ -661,6 +696,9 @@
     document.getElementById("term")?.addEventListener("input", debouncedComputeAll);
 
     // Checkboxes/selects
+    // Default: Finance Taxes & Fees starts checked
+    const financeTFBox = document.getElementById("financeTF");
+    if (financeTFBox) { financeTFBox.checked = true; }
     document.getElementById("financeTF")?.addEventListener("change", computeAll);
     document.getElementById("goalAutoApply")?.addEventListener("change", computeAll);
 
@@ -670,6 +708,7 @@
       const msrp = Number(opt?.dataset?.msrp || 0);
       const name = (opt?.textContent || "").trim();
       if (name || msrp > 0) state.selectedVehicle = { name, msrp: Number.isFinite(msrp) ? msrp : 0 };
+      updateVehicleSummary();
       computeAll();
     });
 
