@@ -552,10 +552,18 @@ try {
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
 
-    // "Don't finance Taxes & Fees" scenario (recommend paying T&F upfront)
-    const amountFinanced_NoTF = Math.max(0, baseAmount);
-    const monthly_NoTF        = pmnt(amountFinanced_NoTF);
-    const dontFinanceSavings  = Math.max(0, monthly - monthly_NoTF);
+    // Savings if you DO NOT finance Taxes & Fees (compute both scenarios explicitly)
+    const totalTF_forSavings = (dealerFeesTotal || 0) + (govFeesTotal || 0) + (taxes || 0);
+    // Reconstruct principal that excludes T&F regardless of current checkbox state
+    const basePrincipal = (amountFinanced || 0) - (financeTF ? totalTF_forSavings : 0);
+    // A) With T&F financed
+    const principal_WithTF = Math.max(0, basePrincipal + totalTF_forSavings);
+    const monthly_WithTF   = pmnt(principal_WithTF);
+    // B) Paying T&F in cash (not financed)
+    const principal_NoTF = Math.max(0, basePrincipal);
+    const monthly_NoTF   = pmnt(principal_NoTF);
+    // Monthly savings by not financing T&F
+    const dontFinanceSavings  = Math.max(0, monthly_WithTF - monthly_NoTF);
 
     // Debug hook (non-UI): quick probe in console when needed
     window.__autoLoanDbg = {
@@ -642,7 +650,7 @@ try {
         pmtSavingsEl.classList.toggle("computed", true);
       } else {
         // when unchecked, user is already paying T&F cash -> congratulate
-        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month!`;
+        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} by paying Cash for your Taxes & Fees`;
         pmtSavingsEl.classList.toggle("computed", true);
       }
     }
