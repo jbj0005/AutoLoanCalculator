@@ -482,25 +482,24 @@ function updateVehicleSummary(){
     const tNoTrade = computeTaxes({ priceForCalc, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
     const taxes    = tWith.taxes;
 
-    // Tax Savings w/ Trade-in — show under Trade-in Value label
-    const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
-    const taxSavingsEl =
-      document.getElementById("tradeSavingsWith") ||
-      document.getElementById("taxSavingsTrade") ||
-      document.getElementById("taxSavings");    if (taxSavingsEl) {
-      if (tradeValue > 0) {
-        if (priceForCalc > 0) {
-          taxSavingsEl.textContent = `Tax Savings w/ Trade-in: ${fmtCurrency(taxSavings)}`;
-        } else {
-          taxSavingsEl.textContent = `Tax Savings w/ Trade-in: ${fmtCurrency(0)}`; // until price provided
-        }
-        taxSavingsEl.classList.add("computed");
-      } else {
-        taxSavingsEl.textContent = "";
-        taxSavingsEl.classList.remove("computed");
-      }
-    }
-
+// Tax Savings w/ Trade-in — show under Trade-in Value label
+const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
+const taxSavingsEl = document.getElementById("tradeSavingsWith") || document.getElementById("taxSavingsTrade") || document.getElementById("taxSavings");
+if (taxSavingsEl) {
+  const hasTrade = tradeValue > 0;
+  if (hasTrade) {
+    // If price not available yet, show $0.00 until it is
+    const shown = (priceForCalc > 0) ? taxSavings : 0;
+    taxSavingsEl.textContent = `Trade-in Tax Savings - ${fmtCurrency(shown)}`;
+    taxSavingsEl.classList.add("computed");
+    taxSavingsEl.setAttribute("aria-live", "polite");
+  } else {
+    // Always show prompt text when no trade value is entered
+    taxSavingsEl.textContent = "Enter a Trade-in Value to see your Tax Savings";
+    taxSavingsEl.classList.remove("computed");
+    taxSavingsEl.setAttribute("aria-live", "polite");
+  }
+}
     // Totals
     const totalTaxesFees = taxes + feesTotal;
     const showTaxes = priceForCalc > 0;
