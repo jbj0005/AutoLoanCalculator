@@ -88,6 +88,7 @@
                 <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$14,000.00" />
                 <div class="op">=</div>
                 <output id="tradeEquity">- -</output>
+                <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Tax Savings w/ Trade-in: $0.00</div>
               </div>
             </div>
           </div>
@@ -146,10 +147,8 @@
             </div>
             <div class="cell-value">
               <output id="taxes">- -</output>
-              <div class="note" id="taxesNote">6% state + county rate on first $5k</div>
               <div class="note" id="taxesRatesNote">County Tax Rate = - - (Default)</div>
               <div class="note"><span id="taxesBreakdown">State Tax — | County Tax —</span></div>
-              <div class="note" id="tradeSavingsWith">Tax Savings w/ Trade-in: $0.00</div>
             </div>
           </div>
 
@@ -164,7 +163,6 @@
             <div class="cell-label">Cash Down</div>
             <div class="cell-value">
               <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$5,000.00" />
-              <div class="note downpayment-note" aria-live="polite">Only reduces Amount Financed.</div>
               <div class="note downpayment-goal" aria-live="polite">
                 <div class="goal-row">
                   <span>Goal Payment:</span>

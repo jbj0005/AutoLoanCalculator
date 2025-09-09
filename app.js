@@ -484,8 +484,10 @@ function updateVehicleSummary(){
 
     // Tax Savings w/ Trade-in — show under Trade-in Value label
     const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
-    const taxSavingsEl = document.getElementById("taxSavingsTrade") || document.getElementById("taxSavings");
-    if (taxSavingsEl) {
+    const taxSavingsEl =
+      document.getElementById("tradeSavingsWith") ||
+      document.getElementById("taxSavingsTrade") ||
+      document.getElementById("taxSavings");    if (taxSavingsEl) {
       if (tradeValue > 0) {
         if (priceForCalc > 0) {
           taxSavingsEl.textContent = `Tax Savings w/ Trade-in: ${fmtCurrency(taxSavings)}`;
