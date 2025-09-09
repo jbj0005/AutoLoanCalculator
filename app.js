@@ -52,16 +52,19 @@
     state.data = sb ? {
       ready: true,
       async listVehicles(){
-        // Try ordered by created_at; if that column doesn't exist, fall back to unordered select
+        // Prefer newest-first by inserted_at; fall back if column is missing
         try {
           let query = sb.from("vehicles").select("*");
-          let { data, error } = await query.order("created_at", { ascending: false });
+          let { data, error } = await query.order("inserted_at", { ascending: false });
           if (error) {
-            console.warn("listVehicles: order by created_at failed, retrying without order", error);
-            const res2 = await sb.from("vehicles").select("*");
-            if (res2.error) throw res2.error;
-            return res2.data || [];
+            console.warn("listVehicles: order by inserted_at failed, falling back to id desc", error);
+            ({ data, error } = await sb.from("vehicles").select("*").order("id", { ascending: false }));
+            if (error) {
+              console.warn("listVehicles: order by id failed, fetching without order", error);
+              ({ data, error } = await sb.from("vehicles").select("*"));
+            }
           }
+          if (error) throw error;
           return data || [];
         } catch (e) {
           console.error("loadVehicles (supabase) failed", e);
@@ -538,6 +541,26 @@ if (taxSavingsEl) {
     // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
+    // Auto-suggest Cash Down = 10% of Monthly Payment (until user edits)
+    try {
+      const cdEl = document.getElementById("cashDown");
+      if (cdEl && !state?.cashDownTouched) {
+        const tenPct = Math.max(0, (monthly || 0) * 0.10);
+        if (tenPct > 0) {
+          cdEl.placeholder = fmtCurrency(tenPct);
+          if (!cdEl.value) {
+            cdEl.value = fmtCurrency(tenPct);
+            if (!state._recalcAfterAutoDown) {
+              state._recalcAfterAutoDown = true;
+              computeAll();
+              state._recalcAfterAutoDown = false;
+              return; // let the second pass propagate the new cashDown
+            }
+          }
+        }
+      }
+    } catch {}
+
     // 0% APR reference (same principal & term)
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
@@ -572,7 +595,7 @@ if (taxSavingsEl) {
       const currentPrincipal = amountFinanced; // reflects financeTF choice above
       const extraDown = Math.max(0, currentPrincipal - principalNeeded);
 
-      if (goalDownOut) goalDownOut.textContent = fmtCurrency(extraDown);
+      if (goalDownOut) goalDownOut.textContent = `Additional Cash Down Needed - ${fmtCurrency(extraDown)}`;
       if (goalDownOut && goalDownOut.classList) {
         goalDownOut.classList.toggle("computed", extraDown > 0);
       }
@@ -650,6 +673,59 @@ if (taxSavingsEl) {
     showCalcMessage("", "");
   }
 
+  function resetCalculator(){
+    const $id = (id) => document.getElementById(id);
+
+    // Inputs to clear (keep vehicle selection intact)
+    ["finalPrice","tradeValue","loanPayoff","cashDown","goalMonthly","apr","term"].forEach((id)=>{
+      const el = $id(id);
+      if (el) { el.value = ""; el.placeholder = ""; }
+    });
+
+    // Dynamic fee lists
+    ["dealerFeesList","govFeesList"].forEach((id)=>{
+      const list = $id(id);
+      if (list) list.innerHTML = "";
+    });
+
+    // Outputs/notes
+    const outs = {
+      amountFinanced: "- -",
+      monthlyPayment: "- -",
+      payment0: "- -",
+      paymentDelta: "- -",
+      taxes: "- -",
+      totalTF: "- -",
+      monthlyApr: "—",
+      amountFinancedNote: "",
+      goalDownNeeded: "",
+      savings: ""
+    };
+    Object.entries(outs).forEach(([id,val])=>{ const el = $id(id); if (el) el.textContent = val; });
+
+    // Restore Trade-in prompt
+    const ts = $id("tradeSavingsWith");
+    if (ts) { ts.textContent = "Enter a Trade-in Value to see your Tax Savings"; ts.classList.remove("computed"); }
+
+    // Default Finance Taxes & Fees to checked
+    const financeTF = $id("financeTF");
+    if (financeTF) financeTF.checked = true;
+
+    // Clear messages
+    const msgs = $id("calcMessages");
+    if (msgs) msgs.innerHTML = "";
+
+    // Reset state flags
+    state.finalPriceWasExpr = false;
+    state.finalPriceExprRaw = null;
+    state.cashDownTouched = false;
+    state._recalcAfterAutoDown = false;
+    if (Array.isArray(state.dealerFees)) state.dealerFees.length = 0;
+    if (Array.isArray(state.govFees)) state.govFees.length = 0;
+
+    // Recompute from clean slate
+    try { computeAll(); } catch(e) { console.error(e); }
+  }
   /* =========================
      Event wiring
   ========================= */
@@ -737,6 +813,14 @@ input.addEventListener("blur", () => {
   }
 
   function wireInputs() {
+    (function(){
+      const cd = document.getElementById("cashDown");
+      if (!cd) return;
+      const markTouched = () => { state.cashDownTouched = true; };
+      cd.addEventListener("input", markTouched);
+      cd.addEventListener("change", markTouched);
+      cd.addEventListener("blur", markTouched);
+    })();
     // Currency-like inputs
     ["finalPrice", "tradeValue", "loanPayoff", "cashDown", "goalMonthly", "msrp"]
       .map(id => document.getElementById(id))
@@ -824,6 +908,12 @@ const onFPChange = () => {
         $$(".fee-amount", govList).slice(-1)[0]?.focus?.();
         computeAll();
       }
+    });
+
+    // Clear button resets the calculator cleanly
+    document.getElementById("clearCalc")?.addEventListener("click", (e) => {
+      e.preventDefault();
+      resetCalculator();
     });
 
     ensureOptionLists();
