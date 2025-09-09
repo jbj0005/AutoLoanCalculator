@@ -58,13 +58,11 @@
         <div class="panel-header">
           <h2>Calculator</h2>
           <div id="calcMessages" class="messages"></div>
+          <button id="loadScenarioBtn" class="btn small" title="Load Scenario" style="margin-right:8px;">Load Scenario</button>
           <button id="clearCalc" class="btn small" title="Clear all inputs">Clear</button>
         </div>
         <form id="calcForm" action="#" class="stack" autocomplete="on">
-
-          
-
-          <div class="cell">
+         <div class="cell">
             <div class="cell-label">Final Sale Price</div>
             <div class="cell-value">
               <input id="finalPrice" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$80,000.00" />
@@ -223,7 +221,10 @@
           <div class="cell">
             <div class="cell-label">Monthly Payment</div>
             <div class="cell-value">
-              <div class="big" id="monthlyPayment">- -</div>
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; width:100%">
+                <div class="big" id="monthlyPayment">- -</div>
+                <button id="saveScenarioBtn" class="btn" type="button">Save Scenario</button>
+              </div>
               <div class="note faint">0% APR reference: <span id="payment0">- -</span></div>
               <div class="note">Delta vs 0%: <span id="paymentDelta">- -</span></div>
             </div>
@@ -348,6 +349,47 @@ Orange	0.5%'></textarea>
         </div>
         <div class="modal-footer">
           <button id="taxInfoCancel" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Scenario Modal -->
+    <div id="saveScenarioModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="saveScenarioTitle">
+        <div class="modal-header">
+          <h3 id="saveScenarioTitle">Save Scenario</h3>
+          <button id="saveScenarioClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label class="t-label" for="scenarioTitle">Title</label>
+            <input id="scenarioTitle" type="text" placeholder="Scenario title" />
+          </div>
+          <div class="form-row">
+            <label class="t-label" for="scenarioNotes">Notes</label>
+            <textarea id="scenarioNotes" rows="4" placeholder="Add any notes about this scenario..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="saveScenarioCancel" class="btn">Cancel</button>
+          <button id="saveScenarioConfirm" class="btn primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Load Scenario Modal -->
+    <div id="loadScenarioModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="loadScenarioTitle">
+        <div class="modal-header">
+          <h3 id="loadScenarioTitle">Load Scenario</h3>
+          <button id="loadScenarioClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div id="scenarioList" class="list"></div>
+          <div class="note faint" style="margin-top:8px">Scenarios are stored in Supabase.</div>
+        </div>
+        <div class="modal-footer">
+          <button id="loadScenarioCancel" class="btn">Close</button>
         </div>
       </div>
     </div>

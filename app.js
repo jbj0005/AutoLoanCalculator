@@ -110,9 +110,97 @@
       async saveVehicle(v){
         // kept for backward-compat; delegates to createVehicle
         return this.createVehicle(v);
-      }
+      },
+
+      // --- Scenario data (Supabase) ---
+      async listScenarios(){
+        const { data, error } = await sb
+          .from('scenarios')
+          .select('*')
+          .order('inserted_at', { ascending: false });
+        if (error) throw error;
+        return data || [];
+      },
+      async createScenario({ title, notes, snapshot }){
+        const { data, error } = await sb
+          .from('scenarios')
+          .insert({ title, notes, snapshot })
+          .select('*')
+          .single();
+        if (error) throw error;
+        return data;
+      },
+      async deleteScenario(id){
+        const { error } = await sb
+          .from('scenarios')
+          .delete()
+          .eq('id', id);
+        if (error) throw error;
+        return true;
+      },
     };
     setSupabaseStatus(!!sb);
+  }
+  // --- Scenario snapshot helpers ---
+  function buildScenarioSnapshot(){
+    // capture essential inputs and a few derived values
+    const val = (id) => (document.getElementById(id)?.value ?? "");
+    const num = (id) => parseCurrency(val(id));
+    const checked = (id) => !!document.getElementById(id)?.checked;
+
+    // collect fee rows
+    const collectFees = (listId) => Array.from(document.querySelectorAll(`#${listId} .fee-row`)).map(row => ({
+      desc: row.querySelector('.fee-desc')?.value || '',
+      amount: parseCurrency(row.querySelector('.fee-amount')?.value || '')
+    }));
+
+    const msrp = getMsrpFromUI();
+    return {
+      vehicleName: document.getElementById('summaryVehicle')?.textContent || '',
+      msrp,
+      finalPrice: parsePriceExpression(val('finalPrice'), msrp),
+      tradeValue: num('tradeValue'),
+      loanPayoff: num('loanPayoff'),
+      cashDown: num('cashDown'),
+      apr: parsePercent(val('apr')) || 6.5,
+      term: parseInt(val('term'), 10) || 72,
+      financeTF: checked('financeTF'),
+      dealerFees: collectFees('dealerFeesList'),
+      govFees: collectFees('govFeesList'),
+      countyRateOverride: parsePercent(document.getElementById('countyRateInput')?.value || '') || null
+    };
+  }
+
+  function applyScenarioSnapshot(snap){
+    if (!snap) return;
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const setMoney = (id, n) => { const el = document.getElementById(id); if (el) el.value = n ? fmtCurrency(n) : ''; };
+
+    setMoney('finalPrice', snap.finalPrice);
+    setMoney('tradeValue', snap.tradeValue);
+    setMoney('loanPayoff', snap.loanPayoff);
+    setMoney('cashDown', snap.cashDown);
+    setVal('apr', snap.apr ? fmtPercentPlain(snap.apr) : '');
+    setVal('term', snap.term ? String(snap.term) : '');
+    const ftf = document.getElementById('financeTF');
+    if (ftf) ftf.checked = !!snap.financeTF;
+
+    // rebuild fee rows
+    const rebuildFees = (listId, items) => {
+      const list = document.getElementById(listId);
+      if (!list) return;
+      list.innerHTML = '';
+      (items || []).forEach(f => addFeeRow(list, { desc: f.desc, amount: f.amount }));
+    };
+    rebuildFees('dealerFeesList', snap.dealerFees);
+    rebuildFees('govFeesList', snap.govFees);
+
+    // optional county override
+    if (snap.countyRateOverride != null) {
+      setVal('countyRateInput', fmtPercentPlain(snap.countyRateOverride));
+    }
+
+    computeAll();
   }
 
   /* =========================
@@ -879,6 +967,118 @@ input.addEventListener("blur", () => {
       if (!dlg.contains(ev.target)) closeTaxInfo(ev);
     });
   })();
+
+  function wireInputs(){
+    // --- SAVE SCENARIO ---
+    document.getElementById('saveScenarioBtn')?.addEventListener('click', (e)=>{
+      e.preventDefault();
+      const m = document.getElementById('saveScenarioModal');
+      if (!m) return;
+      // Prefill title as: Vehicle — APR/TERM
+      const vehicle = document.getElementById('summaryVehicle')?.textContent?.trim() || 'Scenario';
+      const aprTxt = document.getElementById('apr')?.value || '6.5%';
+      const termTxt = document.getElementById('term')?.value || '72';
+      const title = `${vehicle} — ${aprTxt}/${termTxt} mo`;
+      const titleInput = document.getElementById('scenarioTitle');
+      if (titleInput) titleInput.value = title;
+      document.getElementById('scenarioNotes')?.value = '';
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+      try { setPageInert(m); } catch {}
+    });
+    const closeSaveScenario = (e)=>{
+      e?.preventDefault?.();
+      const m = document.getElementById('saveScenarioModal');
+      if (!m) return;
+      m.classList.remove('open');
+      m.setAttribute('aria-hidden', 'true');
+      try { clearPageInert(); } catch {}
+    };
+    document.getElementById('saveScenarioClose')?.addEventListener('click', closeSaveScenario);
+    document.getElementById('saveScenarioCancel')?.addEventListener('click', closeSaveScenario);
+    document.getElementById('saveScenarioConfirm')?.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      try{
+        const title = document.getElementById('scenarioTitle')?.value?.trim() || 'Scenario';
+        const notes = document.getElementById('scenarioNotes')?.value || '';
+        const snapshot = buildScenarioSnapshot();
+        await state.data.createScenario({ title, notes, snapshot });
+        closeSaveScenario();
+        showCalcMessage('Scenario saved', 'ok');
+      } catch(err){
+        console.error('createScenario failed', err);
+        showCalcMessage('Failed to save scenario', 'err');
+      }
+    });
+
+    // --- LOAD SCENARIO ---
+    document.getElementById('loadScenarioBtn')?.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const m = document.getElementById('loadScenarioModal');
+      if (!m) return;
+      // populate list
+      const list = document.getElementById('scenarioList');
+      if (list) { list.innerHTML = '<div class="note">Loading…</div>'; }
+      try {
+        const rows = await state.data.listScenarios();
+        if (list) {
+          if (!rows || rows.length === 0) {
+            list.innerHTML = '<div class="note">No saved scenarios yet.</div>';
+          } else {
+            list.innerHTML = '';
+            rows.forEach(r => {
+              const div = document.createElement('div');
+              div.className = 'list-row';
+              const dt = r.inserted_at ? new Date(r.inserted_at) : null;
+              const when = dt ? dt.toLocaleString() : '';
+              div.innerHTML = `
+                <div class="list-row-main">
+                  <div class="list-title">${r.title || 'Untitled'}</div>
+                  <div class="list-sub">${when}</div>
+                  <div class="list-notes">${(r.notes || '').replace(/[<>]/g,'')}</div>
+                </div>
+                <div class="list-row-actions">
+                  <button class="btn small" data-id="${r.id}">Load</button>
+                </div>`;
+              list.appendChild(div);
+            });
+          }
+        }
+      } catch(err){
+        console.error('listScenarios failed', err);
+        if (list) list.innerHTML = '<div class="note err">Failed to load scenarios.</div>';
+      }
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+      try { setPageInert(m); } catch {}
+
+      // delegate click on Load buttons
+      document.getElementById('scenarioList')?.addEventListener('click', (ev)=>{
+        const btn = ev.target.closest('button[data-id]');
+        if (!btn) return;
+        const id = btn.getAttribute('data-id');
+        const row = (Array.isArray(state.__lastScenarios) ? state.__lastScenarios : []).find(x=>String(x.id)===String(id));
+        const chosen = row || (btn.closest('.list-row') && rows.find(x=>String(x.id)===String(btn.getAttribute('data-id'))));
+        if (chosen) { try { applyScenarioSnapshot(chosen.snapshot); } catch(e) { console.error(e); } }
+        closeLoadScenario();
+      }, { once: true });
+      state.__lastScenarios = rows;
+    });
+
+    const closeLoadScenario = (e)=>{
+      e?.preventDefault?.();
+      const m = document.getElementById('loadScenarioModal');
+      if (!m) return;
+      m.classList.remove('open');
+      m.setAttribute('aria-hidden', 'true');
+      try { clearPageInert(); } catch {}
+    };
+    document.getElementById('loadScenarioClose')?.addEventListener('click', closeLoadScenario);
+    document.getElementById('loadScenarioCancel')?.addEventListener('click', closeLoadScenario);
+
+    // Existing input wiring...
+    ensureOptionLists();
+  }
 
   function ensureOptionLists(){
     // TERM via datalist with labeled options; Safari-friendly type/text + list binding
