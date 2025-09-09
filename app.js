@@ -45,13 +45,25 @@
   function initDataLayer(){
     const url = window.SUPABASE_URL;
     const key = window.SUPABASE_ANON_KEY;
-    const sb  = window.supabase?.createClient && url && key
+
+    // Detailed diagnostics to surface common setup mistakes
+    const reasons = [];
+    if (!window.supabase?.createClient) reasons.push("supabase-js not loaded (check CDN/script order)");
+    if (!url) reasons.push("window.SUPABASE_URL missing (check config.js)");
+    if (!key) reasons.push("window.SUPABASE_ANON_KEY missing (check config.js; use anon/publishable key, not service role)");
+
+    const sb = (!reasons.length)
       ? window.supabase.createClient(url, key)
       : null;
 
     if (!sb) {
       state.data = null;
       setSupabaseStatus(false);
+      try {
+        console.error("Supabase not configured:", reasons.join("; "));
+        console.debug("window.SUPABASE_URL:", url);
+        console.debug("window.SUPABASE_ANON_KEY present:", !!key);
+      } catch {}
       return;
     }
 
@@ -122,41 +134,60 @@
         return data || [];
       },
       async createScenario({ title, notes, snapshot }){
+        // Build safe defaults from current UI
+        const vehicleName = snapshot?.vehicleName || (document.getElementById('summaryVehicle')?.textContent || 'Scenario');
+        const aprTxt  = document.getElementById('apr')?.value || '6.5%';
+        const termTxt = document.getElementById('term')?.value || '72';
+        const fallbackTitle = `${vehicleName} — ${aprTxt}/${termTxt} mo`;
+
+        const sel = document.getElementById('vehicleSelect');
+        const vehicleId = sel?.selectedOptions?.[0]?.value || null;
+
+        const payload = {
+          title: title && title.trim() ? title.trim() : fallbackTitle,
+          notes: notes || '',
+          snapshot: snapshot || {},
+          vehicle_id: vehicleId,       // nullable: link back to vehicles if desired
+          vehicle_name: vehicleName,   // denormalized label for quick list views
+        };
+
         const { data, error } = await sb
           .from('scenarios')
-          .insert({ title, notes, snapshot })
+          .insert(payload)
           .select('*')
-          .single();
+          .single();   // return the inserted row
         if (error) throw error;
         return data;
-      },
-      async deleteScenario(id){
-        const { error } = await sb
-          .from('scenarios')
-          .delete()
-          .eq('id', id);
-        if (error) throw error;
-        return true;
-      },
+      },    
     };
     setSupabaseStatus(!!sb);
   }
   // --- Scenario snapshot helpers ---
   function buildScenarioSnapshot(){
-    // capture essential inputs and a few derived values
+    // === Build a complete calculator snapshot for Save/Load Scenario ===
+    // local helpers (scoped to this snapshot build)
     const val = (id) => (document.getElementById(id)?.value ?? "");
     const num = (id) => parseCurrency(val(id));
     const checked = (id) => !!document.getElementById(id)?.checked;
-
-    // collect fee rows
     const collectFees = (listId) => Array.from(document.querySelectorAll(`#${listId} .fee-row`)).map(row => ({
       desc: row.querySelector('.fee-desc')?.value || '',
       amount: parseCurrency(row.querySelector('.fee-amount')?.value || '')
     }));
 
+    // vehicle selection
+    const sel = document.getElementById('vehicleSelect');
+    const opt = sel?.selectedOptions?.[0] || null;
+    const vehicleId = opt?.value || null;
+    const vehicleName = (document.getElementById('summaryVehicle')?.textContent || opt?.textContent || '')
+      .replace(/\s+—\s+\$.*$/, '')
+      .trim();
+
+    // current MSRP to evaluate expressions like "msrp - 7500" or "-6%"
     const msrp = getMsrpFromUI();
+
     return {
-      vehicleName: document.getElementById('summaryVehicle')?.textContent || '',
+      vehicleId,
+      vehicleName,
       msrp,
       finalPrice: parsePriceExpression(val('finalPrice'), msrp),
       tradeValue: num('tradeValue'),
@@ -821,15 +852,6 @@ try {
       }
     }
 
-    // Amount financed note — show savings ONLY when NOT financing T&F
-    const afNote = document.getElementById("amountFinancedNote");
-    if (afNote) {
-      if (!financeTF && dontFinanceSavings > 0) {
-        afNote.textContent = `You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month`;
-      } else {
-        afNote.textContent = ""; // no note when financing is checked
-      }
-    }
     // Keep vehicle summary in sync with latest MSRP/name
     try { updateVehicleSummary(); } catch {}
 
@@ -968,118 +990,210 @@ input.addEventListener("blur", () => {
     });
   })();
 
-  function wireInputs(){
-    // --- SAVE SCENARIO ---
-    document.getElementById('saveScenarioBtn')?.addEventListener('click', (e)=>{
-      e.preventDefault();
-      const m = document.getElementById('saveScenarioModal');
-      if (!m) return;
-      // Prefill title as: Vehicle — APR/TERM
-      const vehicle = document.getElementById('summaryVehicle')?.textContent?.trim() || 'Scenario';
-      const aprTxt = document.getElementById('apr')?.value || '6.5%';
-      const termTxt = document.getElementById('term')?.value || '72';
-      const title = `${vehicle} — ${aprTxt}/${termTxt} mo`;
-      const titleInput = document.getElementById('scenarioTitle');
-      if (titleInput) titleInput.value = title;
-      document.getElementById('scenarioNotes')?.value = '';
-      m.classList.add('open');
-      m.setAttribute('aria-hidden', 'false');
-      try { setPageInert(m); } catch {}
-    });
-    const closeSaveScenario = (e)=>{
-      e?.preventDefault?.();
-      const m = document.getElementById('saveScenarioModal');
-      if (!m) return;
-      m.classList.remove('open');
-      m.setAttribute('aria-hidden', 'true');
-      try { clearPageInert(); } catch {}
-    };
-    document.getElementById('saveScenarioClose')?.addEventListener('click', closeSaveScenario);
-    document.getElementById('saveScenarioCancel')?.addEventListener('click', closeSaveScenario);
-    document.getElementById('saveScenarioConfirm')?.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      try{
-        const title = document.getElementById('scenarioTitle')?.value?.trim() || 'Scenario';
-        const notes = document.getElementById('scenarioNotes')?.value || '';
-        const snapshot = buildScenarioSnapshot();
-        await state.data.createScenario({ title, notes, snapshot });
-        closeSaveScenario();
-        showCalcMessage('Scenario saved', 'ok');
-      } catch(err){
-        console.error('createScenario failed', err);
-        showCalcMessage('Failed to save scenario', 'err');
-      }
-    });
+function wireInputs(){
+  // ---- Basic inputs -> live recompute ----
+  const onInput = debouncedComputeAll;
+  const onChange = () => computeAll();
 
-    // --- LOAD SCENARIO ---
-    document.getElementById('loadScenarioBtn')?.addEventListener('click', async (e)=>{
-      e.preventDefault();
-      const m = document.getElementById('loadScenarioModal');
-      if (!m) return;
-      // populate list
-      const list = document.getElementById('scenarioList');
-      if (list) { list.innerHTML = '<div class="note">Loading…</div>'; }
-      try {
-        const rows = await state.data.listScenarios();
-        if (list) {
-          if (!rows || rows.length === 0) {
-            list.innerHTML = '<div class="note">No saved scenarios yet.</div>';
-          } else {
-            list.innerHTML = '';
-            rows.forEach(r => {
-              const div = document.createElement('div');
-              div.className = 'list-row';
-              const dt = r.inserted_at ? new Date(r.inserted_at) : null;
-              const when = dt ? dt.toLocaleString() : '';
-              div.innerHTML = `
-                <div class="list-row-main">
-                  <div class="list-title">${r.title || 'Untitled'}</div>
-                  <div class="list-sub">${when}</div>
-                  <div class="list-notes">${(r.notes || '').replace(/[<>]/g,'')}</div>
-                </div>
-                <div class="list-row-actions">
-                  <button class="btn small" data-id="${r.id}">Load</button>
-                </div>`;
-              list.appendChild(div);
-            });
-          }
+  // Numeric/currency/percent inputs we care about
+  const ids = [
+    'finalPrice','tradeValue','loanPayoff','cashDown',
+    'apr','term','goalMonthly','countyRateInput'
+  ];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', onInput);
+    el.addEventListener('change', onChange);
+  });
+
+  // Finance Taxes & Fees toggle
+  document.getElementById('financeTF')?.addEventListener('change', onChange);
+
+  // Goal helpers
+  document.getElementById('goalAutoApply')?.addEventListener('change', onChange);
+
+  // Delegate: fee lists recompute on edit
+  const feeInputHandler = (ev)=>{
+    if (ev.target.classList.contains('fee-amount') || ev.target.classList.contains('fee-desc')) {
+      debouncedComputeAll();
+    }
+  };
+  document.getElementById('dealerFeesList')?.addEventListener('input', feeInputHandler);
+  document.getElementById('govFeesList')?.addEventListener('input', feeInputHandler);
+
+  // Vehicle select -> update state + summary + compute
+  const vehicleSel = document.getElementById('vehicleSelect');
+  vehicleSel?.addEventListener('change', ()=>{
+    const opt = vehicleSel.selectedOptions?.[0];
+    const name = (opt?.textContent || '').replace(/\s+—\s+\$.*$/, '').trim();
+    const msrp = Number(opt?.dataset?.msrp || opt?.getAttribute('data-msrp')) || 0;
+    state.selectedVehicle = { name, msrp };
+    updateVehicleSummary();
+    computeAll();
+    // If Final Price expression references MSRP, re-run compute to reflect new MSRP
+    try {
+      const v = (document.getElementById('finalPrice')?.value || '').toUpperCase();
+      if (v.includes('MSRP')) computeAll();
+    } catch {}
+  });
+
+  // Clear calculator button
+  document.getElementById('clearCalc')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    if (typeof resetCalculator === 'function') resetCalculator();
+    computeAll();
+  });
+
+  // ---------------------------
+  // Modals: Taxable Base info
+  // ---------------------------
+  document.getElementById('openTaxInfo')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+    try { setPageInert(m); } catch {}
+  });
+  const closeTaxInfo = (e)=>{
+    e?.preventDefault?.();
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+    try { clearPageInert(); } catch {}
+  };
+  document.getElementById('taxInfoClose')?.addEventListener('click', closeTaxInfo);
+  document.getElementById('taxInfoCancel')?.addEventListener('click', closeTaxInfo);
+  // Accessibility niceties: ESC/overlay close
+  (function enhanceTaxInfoModal(){
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    document.addEventListener('keydown', function onEsc(ev){
+      if (m.classList.contains('open') && (ev.key === 'Escape' || ev.key === 'Esc')) closeTaxInfo(ev);
+    });
+    m.addEventListener('click', (ev)=>{
+      const dlg = m.querySelector('.modal-dialog');
+      if (dlg && !dlg.contains(ev.target)) closeTaxInfo(ev);
+    });
+  })();
+
+  // ---------------------------
+  // Scenarios: Save / Load
+  // ---------------------------
+  document.getElementById('saveScenarioBtn')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const m = document.getElementById('saveScenarioModal');
+    if (!m) return;
+    const sel = document.getElementById('vehicleSelect');
+    const opt = sel?.selectedOptions?.[0] || null;
+    const vehicleName = (document.getElementById('summaryVehicle')?.textContent || opt?.textContent || 'Scenario')
+      .replace(/\s+—\s+\$.*$/, '')
+      .trim();
+    const aprTxt  = document.getElementById('apr')?.value || '6.5%';
+    const termTxt = document.getElementById('term')?.value || '72';
+    const title   = `${vehicleName} — ${aprTxt}/${termTxt} mo`;
+    const titleEl = document.getElementById('scenarioTitle');
+    if (titleEl) titleEl.value = title;
+    const notesEl = document.getElementById('scenarioNotes');
+    if (notesEl) notesEl.value = '';
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+    try { setPageInert(m); } catch {}
+  });
+  const closeSaveScenario = (e)=>{
+    e?.preventDefault?.();
+    const m = document.getElementById('saveScenarioModal');
+    if (!m) return;
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+    try { clearPageInert(); } catch {}
+  };
+  document.getElementById('saveScenarioClose')?.addEventListener('click', closeSaveScenario);
+  document.getElementById('saveScenarioCancel')?.addEventListener('click', closeSaveScenario);
+  document.getElementById('saveScenarioConfirm')?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    try{
+      const title = document.getElementById('scenarioTitle')?.value?.trim() || '';
+      const notes = document.getElementById('scenarioNotes')?.value || '';
+      const snapshot = buildScenarioSnapshot();
+      await state.data?.createScenario?.({ title, notes, snapshot });
+      closeSaveScenario();
+      showCalcMessage('Scenario saved', 'ok');
+    } catch(err){
+      console.error('createScenario failed', err);
+      showCalcMessage('Failed to save scenario', 'err');
+    }
+  });
+
+  document.getElementById('loadScenarioBtn')?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    const m = document.getElementById('loadScenarioModal');
+    if (!m) return;
+    const list = document.getElementById('scenarioList');
+    if (list) list.innerHTML = '<div class="note">Loading…</div>';
+    try {
+      const rows = await state.data?.listScenarios?.() || [];
+      if (list) {
+        if (!rows.length) {
+          list.innerHTML = '<div class="note">No saved scenarios yet.</div>';
+        } else {
+          list.innerHTML = '';
+          rows.forEach(r => {
+            const div = document.createElement('div');
+            div.className = 'list-row';
+            const dt = r.inserted_at ? new Date(r.inserted_at) : null;
+            const when = dt ? dt.toLocaleString() : '';
+            const title = (r.title || r.vehicle_name || 'Untitled');
+            div.innerHTML = `
+              <div class="list-row-main">
+                <div class="list-title">${title}</div>
+                <div class="list-sub">${when}</div>
+                ${r.notes ? `<div class="list-notes">${String(r.notes).replace(/[<>]/g,'')}</div>` : ''}
+              </div>
+              <div class="list-row-actions">
+                <button class="btn small" data-id="${r.id}">Load</button>
+              </div>`;
+            list.appendChild(div);
+          });
+          // one-time delegate within handler scope so it sees `rows`
+          list.addEventListener('click', (ev)=>{
+            const btn = ev.target.closest('button[data-id]');
+            if (!btn) return;
+            const id = btn.getAttribute('data-id');
+            const row = rows.find(x=>String(x.id)===String(id));
+            if (row) {
+              try { applyScenarioSnapshot(row.snapshot); } catch(e) { console.error(e); }
+            }
+            closeLoadScenario();
+          }, { once: true });
         }
-      } catch(err){
-        console.error('listScenarios failed', err);
-        if (list) list.innerHTML = '<div class="note err">Failed to load scenarios.</div>';
       }
-      m.classList.add('open');
-      m.setAttribute('aria-hidden', 'false');
-      try { setPageInert(m); } catch {}
+    } catch(err){
+      console.error('listScenarios failed', err);
+      if (list) list.innerHTML = '<div class="note err">Failed to load scenarios.</div>';
+    }
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+    try { setPageInert(m); } catch {}
+  });
 
-      // delegate click on Load buttons
-      document.getElementById('scenarioList')?.addEventListener('click', (ev)=>{
-        const btn = ev.target.closest('button[data-id]');
-        if (!btn) return;
-        const id = btn.getAttribute('data-id');
-        const row = (Array.isArray(state.__lastScenarios) ? state.__lastScenarios : []).find(x=>String(x.id)===String(id));
-        const chosen = row || (btn.closest('.list-row') && rows.find(x=>String(x.id)===String(btn.getAttribute('data-id'))));
-        if (chosen) { try { applyScenarioSnapshot(chosen.snapshot); } catch(e) { console.error(e); } }
-        closeLoadScenario();
-      }, { once: true });
-      state.__lastScenarios = rows;
-    });
+  const closeLoadScenario = (e)=>{
+    e?.preventDefault?.();
+    const m = document.getElementById('loadScenarioModal');
+    if (!m) return;
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+    try { clearPageInert(); } catch {}
+  };
+  document.getElementById('loadScenarioClose')?.addEventListener('click', closeLoadScenario);
+  document.getElementById('loadScenarioCancel')?.addEventListener('click', closeLoadScenario);
 
-    const closeLoadScenario = (e)=>{
-      e?.preventDefault?.();
-      const m = document.getElementById('loadScenarioModal');
-      if (!m) return;
-      m.classList.remove('open');
-      m.setAttribute('aria-hidden', 'true');
-      try { clearPageInert(); } catch {}
-    };
-    document.getElementById('loadScenarioClose')?.addEventListener('click', closeLoadScenario);
-    document.getElementById('loadScenarioCancel')?.addEventListener('click', closeLoadScenario);
-
-    // Existing input wiring...
-    ensureOptionLists();
-  }
-
+  // After wiring up everything, ensure option lists are set, then compute once
+  ensureOptionLists();
+  computeAll();
+}
   function ensureOptionLists(){
     // TERM via datalist with labeled options; Safari-friendly type/text + list binding
     const termInput = document.getElementById("term");
