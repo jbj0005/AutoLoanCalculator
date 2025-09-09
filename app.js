@@ -541,26 +541,13 @@ if (taxSavingsEl) {
     // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
-    // Auto-suggest Cash Down = 10% of Monthly Payment (until user edits)
-    try {
-      const cdEl = document.getElementById("cashDown");
-      if (cdEl && !state?.cashDownTouched) {
-        const tenPct = Math.max(0, (monthly || 0) * 0.10);
-        if (tenPct > 0) {
-          cdEl.placeholder = fmtCurrency(tenPct);
-          if (!cdEl.value) {
-            cdEl.value = fmtCurrency(tenPct);
-            if (!state._recalcAfterAutoDown) {
-              state._recalcAfterAutoDown = true;
-              computeAll();
-              state._recalcAfterAutoDown = false;
-              return; // let the second pass propagate the new cashDown
-            }
-          }
-        }
-      }
-    } catch {}
-
+// Cash Down UX: show a clear prompt instead of auto-filling a value
+try {
+  const cdEl = document.getElementById("cashDown");
+  if (cdEl) {
+    cdEl.placeholder = "Enter Additional Cash Down";
+  }
+} catch {}
     // 0% APR reference (same principal & term)
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
@@ -646,15 +633,17 @@ if (taxSavingsEl) {
     if (p0El) p0El.textContent = fmtCurrency(zeroAprMonthly);
     if (pdEl) pdEl.textContent = financingCostPerMonth > 0 ? fmtCurrency(financingCostPerMonth) : fmtCurrency(0);
 
-    // Recommendation: Pay T&F upfront — new phrasing
+    // Recommendation note below Amount Financed (pmtSavings)
     const pmtSavingsEl = document.getElementById("pmtSavings");
     if (pmtSavingsEl) {
-      if (dontFinanceSavings > 0) {
-        pmtSavingsEl.textContent = `You'll save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
-        pmtSavingsEl.classList.add("computed");
+      // when checked, we are currently financing T&F -> recommend paying cash
+      if (financeTF) {
+        pmtSavingsEl.textContent = `Pay Cash for Taxes & Fees to Save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
+        pmtSavingsEl.classList.toggle("computed", true);
       } else {
-        pmtSavingsEl.textContent = "";
-        pmtSavingsEl.classList.remove("computed");
+        // when unchecked, user is already paying T&F cash -> congratulate
+        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month!`;
+        pmtSavingsEl.classList.toggle("computed", true);
       }
     }
 
@@ -783,6 +772,22 @@ input.addEventListener("blur", () => {
         { m: 84, label: "84Mo / 7Yrs" },
         { m: 96, label: "96Mo / 8Yrs" },
       ];
+      // Goal Monthly: placeholder + dynamic width to avoid clipping
+    const goalInput = document.getElementById("goalMonthly");
+    if (goalInput) {
+      // Ensure requested placeholder copy
+      goalInput.placeholder = "Set Your Ideal Monthly Payment";
+
+      // Dynamically size to fit the placeholder (and enforce a sensible minimum)
+      const ch = Math.max((goalInput.placeholder || "").length, 18);
+      goalInput.style.minWidth = `${ch}ch`; // prevents clipping in modern browsers
+      goalInput.size = ch;                  // improves width behavior in some engines
+    }
+    // Cash Down: set requested placeholder on init
+    const cashDownInput = document.getElementById("cashDown");
+    if (cashDownInput) {
+      cashDownInput.placeholder = "Enter Additional Cash Down";
+    }
       termDatalist.innerHTML = presets.map(p => `<option value="${p.m}" label="${p.label}"></option>`).join("");
       termInput.setAttribute("list", "termOptions");
       termInput.addEventListener("blur", () => {
