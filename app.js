@@ -545,13 +545,18 @@ if (taxSavingsEl) {
     taxSavingsEl.setAttribute("aria-live", "polite");
   }
 }
-    // Cash Difference = Final Sale Price − Trade-in Value (base before fees)
+    // CASH DIFFERENCE / TAXABLE BASE (displayed before Dealer Fees)
     try {
       const cashDiffVal = Math.max(0, (priceForCalc || 0) - (tradeValue || 0));
-      const cashDiffEl = document.getElementById("cashDifference");
-      if (cashDiffEl) {
-        cashDiffEl.textContent = fmtCurrency(cashDiffVal);
-        cashDiffEl.classList.add("computed");
+      const cashDiffOut = document.getElementById('cashDifferenceOut');
+      if (cashDiffOut) {
+        cashDiffOut.textContent = fmtCurrency(cashDiffVal);
+        cashDiffOut.classList.add('computed');
+      }
+      const taxableBaseOut = document.getElementById('taxableBaseOut');
+      if (taxableBaseOut) {
+        taxableBaseOut.textContent = fmtCurrency(tWith.taxableBase);
+        taxableBaseOut.classList.add('computed');
       }
     } catch {}
     // Totals
@@ -825,6 +830,44 @@ input.addEventListener("blur", () => {
     });
     input.addEventListener("input", debouncedComputeAll);
   }
+  // Taxable Base info modal
+  document.getElementById('openTaxInfo')?.addEventListener('click', (e)=>{
+    e.preventDefault();
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    m.classList.add('open');
+    m.setAttribute('aria-hidden', 'false');
+    try { setPageInert(m); } catch {}
+  });
+
+  const closeTaxInfo = (e)=>{
+    e?.preventDefault?.();
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    m.classList.remove('open');
+    m.setAttribute('aria-hidden', 'true');
+    try { clearPageInert(); } catch {}
+  };
+  document.getElementById('taxInfoClose')?.addEventListener('click', closeTaxInfo);
+  document.getElementById('taxInfoCancel')?.addEventListener('click', closeTaxInfo);
+
+  // Optional: close on overlay click or ESC to match other modals
+  (function enhanceTaxInfoModal(){
+    const m = document.getElementById('taxInfoModal');
+    if (!m) return;
+    // close on ESC
+    document.addEventListener('keydown', function onEsc(ev){
+      if (m.classList.contains('open') && (ev.key === 'Escape' || ev.key === 'Esc')) {
+        closeTaxInfo(ev);
+      }
+    });
+    // close if clicking outside dialog
+    m.addEventListener('click', (ev)=>{
+      const dlg = m.querySelector('.modal-dialog');
+      if (!dlg) return;
+      if (!dlg.contains(ev.target)) closeTaxInfo(ev);
+    });
+  })();
 
   function ensureOptionLists(){
     // TERM via datalist with labeled options; Safari-friendly type/text + list binding

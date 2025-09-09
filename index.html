@@ -94,6 +94,19 @@
           </div>
 
           <div class="cell">
+            <div class="cell-value">
+            <div class="summary cell-label compact" id="cashTaxBlock">
+              <div class="item"><span class="label">Cash Difference:</span> <span class="value" id="cashDifferenceOut">- -</span></div>
+              <div class="item"><span class="label">Taxable Base:</span> <span class="value" id="taxableBaseOut">- -</span></div>
+
+              <!-- replace the old note with this button -->
+              <button id="openTaxInfo" class="link-btn small" type="button" style="margin-top:6px">
+                What is “Taxable Base”?
+              </button>
+            </div>            </div>
+          </div>
+
+          <div class="cell">
             <div class="cell-label">Dealer Fees</div>
             <div class="cell-value">
               <div id="dealerFeesList" class="fees-list"></div>
@@ -305,6 +318,36 @@ Orange	0.5%'></textarea>
         </div>
         <div class="modal-footer">
           <button id="formulaCancel" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Taxable Base Info Modal -->
+    <div id="taxInfoModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="taxInfoModalTitle">
+        <div class="modal-header">
+          <h3 id="taxInfoModalTitle">What is the Taxable Base?</h3>
+          <button id="taxInfoClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row" style="display:block">
+            <div class="note wrap-note">Taxable Base is the amount your sales tax is calculated on.</div>
+            <div class="note wrap-note">
+              In Florida: <strong>Taxable Base = max(Final Sale Price − Trade-in Value, 0) + Dealer Fees</strong> (for dealer fees that are taxable).
+            </div>
+            <div class="hint wrap-note">
+              Government/DMV fees like title, tag, lien are not taxable. County surtax (if any) applies only to the first $5,000 of the taxable base.
+            </div>
+            <div class="note wrap-note">
+              Reference:
+              <a href="https://floridarevenue.com/Forms_library/current/brochure/gt800030.pdf" target="_blank" rel="noopener">
+                Florida Department of Revenue – Motor Vehicle Sales/Use Tax
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="taxInfoCancel" class="btn">Close</button>
         </div>
       </div>
     </div>
