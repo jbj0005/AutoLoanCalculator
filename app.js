@@ -594,6 +594,16 @@ if (taxSavingsEl) {
     const ttf = document.getElementById("totalTF") || document.getElementById("totalTaxesAndFees");
     if (ttf) ttf.textContent = showTaxes ? fmtCurrency(totalTaxesFees) : "—";
 
+    // SUBTOTAL = Taxable Base + Total Taxes & Fees
+    try {
+      const subEl = document.getElementById('subtotalOut');
+      if (subEl) {
+        const subtotalVal = (tWith?.taxableBase || 0) + (totalTaxesFees || 0);
+        subEl.textContent = showTaxes ? fmtCurrency(subtotalVal) : "—";
+        subEl.classList.add('computed');
+      }
+    } catch {}
+
     // Amount financed & monthly
     const financeTF      = $("#financeTF")?.checked ?? true;
     const baseAmount     = (priceForCalc - tradeValue + payoff) - cashDown;
@@ -761,6 +771,7 @@ try {
       paymentDelta: "- -",
       taxes: "- -",
       totalTF: "- -",
+      subtotalOut: "- -",
       monthlyApr: "—",
       amountFinancedNote: "",
       goalDownNeeded: "",

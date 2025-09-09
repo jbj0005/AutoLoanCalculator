@@ -296,3 +296,16 @@ input[type="checkbox"]{width:16px; height:16px}
 /* NOTE: JavaScript was removed from this CSS file because CSS parsers do not accept JS or '//' comments;
    move the following script into a separate JS file (for example: /Users/brandon/Documents/AutoLoan/govfees.js)
    and include it via a <script src="govfees.js"></script> in your HTML. */
+
+/* Cash Difference / Taxable Base block layout */
+#cashTaxBlock{
+  display: flex;
+  flex-direction: column;
+  align-items: center;           /* center contents horizontally */
+  gap: 6px;                      /* consistent vertical rhythm */
+}
+#cashTaxBlock .item{ width: 100%; }
+#cashTaxBlock #openTaxInfo{
+  align-self: center;            /* ensure button is centered */
+  margin-top: 6px;               /* space above button */
+}
