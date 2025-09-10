@@ -485,6 +485,45 @@ function parsePriceExpression(raw, msrp = 0) {
     return { extraDown, taxes, feesTotal };
   }
 
+  // Payment PMT for principal P at monthly rate i and term n (months).
+  // Formula: PMT = P * [ i(1+i)^n / ( (1+i)^n − 1 ) ]
+  function pmtFor(P, i, n){
+    if (!Number.isFinite(P) || P <= 0 || !Number.isFinite(n) || n <= 0) return 0;
+    if (!Number.isFinite(i) || i <= 0) return P / n; // 0% APR case
+    const pow = Math.pow(1 + i, n);
+    return P * (i * pow) / (pow - 1);
+  }
+
+  // Solve monthly rate i (APR% = i*12*100) that yields targetPmt for principal P and term n.
+  // Binary search i ∈ [0, 1] (0%..100% per month).
+  function solveMonthlyRateForPayment(P, targetPmt, n){
+    if (!Number.isFinite(P) || P <= 0 || !Number.isFinite(targetPmt) || targetPmt <= 0 || !Number.isFinite(n) || n <= 0) return null;
+    const minPmt = P / n;                // PMT at 0% APR
+    if (targetPmt <= minPmt + 1e-9) return 0; // implies APR ≤ 0%
+    let lo = 0, hi = 1;
+    for (let k = 0; k < 60; k++){
+      const mid = (lo + hi) / 2;
+      const p = pmtFor(P, mid, n);
+      if (p > targetPmt) hi = mid; else lo = mid;
+    }
+    return (lo + hi) / 2;
+  }
+
+  // Solve required term n (months) for payment targetPmt at monthly rate i.
+  // Closed form (for i>0): n = -ln(1 - (P*i)/PMT) / ln(1 + i)
+  // For i = 0:           n = P / PMT
+  function solveTermForPayment(P, targetPmt, i){
+    if (!Number.isFinite(P) || P <= 0 || !Number.isFinite(targetPmt) || targetPmt <= 0) return null;
+    if (!Number.isFinite(i) || i <= 0){
+      const n0 = P / targetPmt;
+      return Number.isFinite(n0) && n0 > 0 ? n0 : null;
+    }
+    const threshold = P * i;             // must have PMT > P*i to amortize
+    if (targetPmt <= threshold + 1e-12) return Infinity; // payment too low for current APR
+    const n = -Math.log(1 - (threshold / targetPmt)) / Math.log(1 + i);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
   /* =========================
      MSRP sourcing
   ========================= */
@@ -611,6 +650,16 @@ function updateVehicleSummary(){
     const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
     const payoff     = tradeValue > 0 ? payoffRaw : 0;
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
+
+    // Trade equity breakdown (positive vs. negative)
+    const tradeEquity = (tradeValue || 0) - (payoff || 0);
+    const posEquity   = Math.max(0, tradeEquity);
+    const negEquity   = Math.max(0, -tradeEquity);
+    // Show current negative equity next to the checkbox, if present
+    try {
+      const negEqSpan = document.getElementById('negEquityValue');
+      if (negEqSpan) negEqSpan.textContent = negEquity > 0 ? ` (−${fmtCurrency(negEquity)})` : ' (—)';
+    } catch {}
 
     // APR & TERM with functional defaults if inputs are blank
     const _aprParsed  = parsePercent(aprEl?.value ?? aprEl?.textContent ?? ""); // % number
@@ -744,9 +793,19 @@ if (taxSavingsEl) {
     } catch {}
 
     // Amount financed & monthly
-    const financeTF      = $("#financeTF")?.checked ?? true;
+    const financeTF       = document.getElementById('financeTF')?.checked ?? true;
+    const financeNegEquity= document.getElementById('financeNegEquity')?.checked ?? true;
+
+    // Base principal includes equity already: (price - trade + payoff) - cashDown
     const baseAmount     = (priceForCalc - tradeValue + payoff) - cashDown;
-    const amountFinanced = Math.max(0, financeTF ? baseAmount + taxes + feesTotal : baseAmount);
+
+    // Start from base, optionally roll-in Taxes & Fees
+    let amountFinanced   = Math.max(0, financeTF ? baseAmount + taxes + feesTotal : baseAmount);
+
+    // If NOT financing negative equity, remove it from Amount Financed (it will be due upfront)
+    if (!financeNegEquity && negEquity > 0) {
+      amountFinanced = Math.max(0, amountFinanced - negEquity);
+    }
 
     const r = (aprPercent / 100 / 12) || 0;
     const n = term || 0;
@@ -768,23 +827,37 @@ try {
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
 
-    // Savings if you DO NOT finance Taxes & Fees (compute both scenarios explicitly)
+    // Savings if you DO NOT finance Taxes & Fees and/or Negative Equity
     const totalTF_forSavings = (dealerFeesTotal || 0) + (govFeesTotal || 0) + (taxes || 0);
-    // Reconstruct principal that excludes T&F regardless of current checkbox state
-    const basePrincipal = (amountFinanced || 0) - (financeTF ? totalTF_forSavings : 0);
-    // A) With T&F financed
-    const principal_WithTF = Math.max(0, basePrincipal + totalTF_forSavings);
+
+    // Reconstruct a core principal that excludes BOTH T&F and negative equity regardless of current toggles
+    const basePrincipalCore = Math.max(0,
+      (amountFinanced || 0)
+      - (financeTF ? totalTF_forSavings : 0)
+      - (financeNegEquity ? negEquity : 0)
+    );
+
+    // A) Savings from not financing Taxes & Fees
+    const principal_WithTF = Math.max(0, basePrincipalCore + totalTF_forSavings + (financeNegEquity ? negEquity : 0));
+    const principal_NoTF   = Math.max(0, basePrincipalCore + (financeNegEquity ? negEquity : 0));
     const monthly_WithTF   = pmnt(principal_WithTF);
-    // B) Paying T&F in cash (not financed)
-    const principal_NoTF = Math.max(0, basePrincipal);
-    const monthly_NoTF   = pmnt(principal_NoTF);
-    // Monthly savings by not financing T&F
-    const dontFinanceSavings  = Math.max(0, monthly_WithTF - monthly_NoTF);
+    const monthly_NoTF     = pmnt(principal_NoTF);
+    const dontFinanceSavingsTF = Math.max(0, monthly_WithTF - monthly_NoTF);
+
+    // B) Savings from not financing Negative Equity (only meaningful if negEquity > 0)
+    const principal_WithNegEq = Math.max(0, basePrincipalCore + (financeTF ? totalTF_forSavings : 0) + negEquity);
+    const principal_NoNegEq   = Math.max(0, basePrincipalCore + (financeTF ? totalTF_forSavings : 0));
+    const monthly_WithNegEq   = pmnt(principal_WithNegEq);
+    const monthly_NoNegEq     = pmnt(principal_NoNegEq);
+    const dontFinanceSavingsNegEq = Math.max(0, monthly_WithNegEq - monthly_NoNegEq);
+
+    // Combined monthly savings vs. financing whatever is currently toggled ON
+    const combinedSavings = dontFinanceSavingsTF + (negEquity > 0 ? dontFinanceSavingsNegEq : 0);
 
     // Debug hook (non-UI): quick probe in console when needed
     window.__autoLoanDbg = {
       aprPercent, term, r, n, amountFinanced, priceForCalc, tradeValue, payoff, cashDown,
-      dealerFeesTotal, govFeesTotal, taxes, dontFinanceSavings
+      dealerFeesTotal, govFeesTotal, taxes, dontFinanceSavingsTF, dontFinanceSavingsNegEq, combinedSavings
     };
 
     // Baseline monthly (no trade/payoff) — retained for other UI blocks if present
@@ -853,7 +926,46 @@ try {
         finalPriceForGoalEl.classList.add("computed");
       }
 
+      // Additional note: what APR / TERM would be required to meet goalMonthly
+      try {
+        const noteEl = document.getElementById('goalAprTermNote');
+        if (noteEl) {
+          const P   = amountFinanced;  // current principal
+          const tgt = goalMonthly;     // target monthly payment
+          const nCur = n;              // current term (months)
+          const iCur = r;              // current monthly rate (APR/12)
 
+          if (noteEl) {
+            const P   = amountFinanced;  // current principal
+            const tgt = goalMonthly;     // target monthly payment
+            const nCur = n;              // current term (months)
+            const iCur = r;              // current monthly rate (APR/12)
+
+            // Required APR at current TERM (returning monthly rate). If 0, APR is 0%.
+            const iNeeded = solveMonthlyRateForPayment(P, tgt, nCur);
+            const aprPctNeeded = (iNeeded == null || iNeeded === Infinity || iNeeded < 0)
+              ? null
+              : (iNeeded * 12 * 100);
+
+            // Required TERM at current APR (months). Infinity means payment too low; null = not determinable.
+            const nNeededRaw = solveTermForPayment(P, tgt, iCur);
+            const nNeededMo = (nNeededRaw === Infinity || nNeededRaw == null || !(Number.isFinite(nNeededRaw)))
+              ? null
+              : Math.ceil(nNeededRaw);
+
+            const aprPart  = (aprPctNeeded == null)
+              ? 'APR ~—'
+              : `APR ~${fmtPercentPlain(aprPctNeeded)}`;
+            const termPart = (nNeededMo == null)
+              ? '~— months'
+              : `~${nNeededMo} months`;
+
+            // Final concise note per spec: "To Meet Goal: APR ~%X.XX @ (term), OR ~XX months @ (apr)"
+            noteEl.textContent = `${'To Meet Goal:'} ${aprPart} @ ${nCur} months, OR ${termPart} @ ${fmtPercentPlain(aprPercent)}`;
+            noteEl.classList.add('computed');
+          }
+        }
+      } catch {}
       if (autoApplyGoal && !state._applyingGoalDown) {
         state._applyingGoalDown = true;
         const newDown = Math.max(0, cashDown + extraDown);
@@ -863,9 +975,11 @@ try {
         return;
       }
     } else {
-      if (goalDownOut) goalDownOut.textContent = "";
-      if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
-    }
+  if (goalDownOut) goalDownOut.textContent = "";
+  if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
+  const noteEl = document.getElementById("goalAprTermNote");
+  if (noteEl) { noteEl.textContent = ""; noteEl.classList.remove("computed"); }
+}
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
     (document.getElementById("monthlyPayment")  ) && (document.getElementById("monthlyPayment").textContent   = fmtCurrency(monthly));
@@ -878,9 +992,9 @@ try {
     (document.getElementById("outTheDoor")   ) && (document.getElementById("outTheDoor").textContent   = fmtCurrency(outTheDoor));
     (document.getElementById("cashDueToday") ) && (document.getElementById("cashDueToday").textContent = fmtCurrency(dueToday));
 
-    // Cash Due at Signing — updated rule:
-    // IF(financeTF = false, cashDown + totalTF, cashDown)
-    const dueAtSigning = Math.max(0, !financeTF ? (cashDown + totalTaxesFees) : cashDown);
+    // Cash Due at Signing — includes any UNFINANCED negative equity
+    let dueAtSigning = Math.max(0, !financeTF ? (cashDown + totalTaxesFees) : cashDown);
+    if (!financeNegEquity && negEquity > 0) dueAtSigning += negEquity;
     const dueAtEl = document.getElementById("cashDueAtSigning");
     if (dueAtEl) dueAtEl.textContent = fmtCurrency(dueAtSigning);
 
@@ -910,15 +1024,19 @@ try {
     // Recommendation note below Amount Financed (pmtSavings)
     const pmtSavingsEl = document.getElementById("pmtSavings");
     if (pmtSavingsEl) {
-      
-      // when checked, we are currently financing T&F -> recommend paying cash
-      if (financeTF) {
-        pmtSavingsEl.textContent = `Pay Cash for Taxes & Fees to Save ${fmtCurrency(dontFinanceSavings)} Per Month!`;
-        pmtSavingsEl.classList.toggle("computed", true);
+      const parts = [];
+      if (financeTF) parts.push('Taxes & Fees');
+      if (financeNegEquity && negEquity > 0) parts.push('Negative Equity');
+
+      if (parts.length > 0) {
+        // We are currently financing one or both items — recommend paying them cash
+        const label = parts.join(' & ');
+        pmtSavingsEl.textContent = `Pay Cash to Save ${fmtCurrency(combinedSavings)} Per Month!`;
+        pmtSavingsEl.classList.toggle('computed', true);
       } else {
-        // when unchecked, user is already paying T&F cash -> congratulate
-        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(dontFinanceSavings)} Per Month`;
-        pmtSavingsEl.classList.toggle("computed", true);
+        // Already paying both in cash (or no neg equity) — congratulate and show savings vs. financing them
+        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(combinedSavings)} Per Month`;
+        pmtSavingsEl.classList.toggle('computed', true);
       }
     }
 
@@ -968,6 +1086,8 @@ try {
     // Default Finance Taxes & Fees to checked
     const financeTF = $id("financeTF");
     if (financeTF) financeTF.checked = true;
+    const financeNegEq = $id('financeNegEquity');
+    if (financeNegEq) financeNegEq.checked = true;
 
     // Clear messages
     const msgs = $id("calcMessages");
@@ -1081,6 +1201,7 @@ function wireInputs(){
 
   // Finance Taxes & Fees toggle
   document.getElementById('financeTF')?.addEventListener('change', onChange);
+  document.getElementById('financeNegEquity')?.addEventListener('change', onChange);
 
   // Goal helpers
   document.getElementById('goalAutoApply')?.addEventListener('change', onChange);
@@ -1325,7 +1446,7 @@ function wireInputs(){
 
     // Label tweak for Finance Taxes & Fees
     const financeLbl = document.getElementById("financeTFLabel") || document.querySelector('label[for="financeTF"]');
-    if (financeLbl) financeLbl.textContent = "Check Box to Finance Taxes & Fees";
+    if (financeLbl) financeLbl.textContent = "Check to Finance Taxes & Fees";
   }
 
   function wireInputs() {
@@ -1373,6 +1494,8 @@ const onFPChange = () => {
     // Default: Finance Taxes & Fees starts checked
     const financeTFBox = document.getElementById("financeTF");
     if (financeTFBox) { financeTFBox.checked = true; }
+    const financeNegEqBox = document.getElementById('financeNegEquity');
+    if (financeNegEqBox) { financeNegEqBox.checked = true; financeNegEqBox.addEventListener('change', computeAll); }
     document.getElementById("financeTF")?.addEventListener("change", computeAll);
     document.getElementById("goalAutoApply")?.addEventListener("change", computeAll);
 
