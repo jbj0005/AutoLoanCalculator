@@ -814,6 +814,12 @@ try {
     (document.getElementById("outTheDoor")   ) && (document.getElementById("outTheDoor").textContent   = fmtCurrency(outTheDoor));
     (document.getElementById("cashDueToday") ) && (document.getElementById("cashDueToday").textContent = fmtCurrency(dueToday));
 
+    // Cash Due at Signing — updated rule:
+    // IF(financeTF = false, cashDown + totalTF, cashDown)
+    const dueAtSigning = Math.max(0, !financeTF ? (cashDown + totalTaxesFees) : cashDown);
+    const dueAtEl = document.getElementById("cashDueAtSigning");
+    if (dueAtEl) dueAtEl.textContent = fmtCurrency(dueAtSigning);
+
     // Savings vs MSRP
     const savingsEl = document.getElementById("savings");
     if (savingsEl) {
@@ -885,7 +891,8 @@ try {
       monthlyApr: "—",
       amountFinancedNote: "",
       goalDownNeeded: "",
-      savings: ""
+      savings: "",
+      cashDueAtSigning: "- -",
     };
     Object.entries(outs).forEach(([id,val])=>{ const el = $id(id); if (el) el.textContent = val; });
 

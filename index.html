@@ -11,9 +11,6 @@
   <!-- Supabase: use UMD so window.supabase is defined -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <!-- Other libs (OK to defer) -->
-  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
   <!-- Your keys/config must load before app.js -->
   <script defer src="config.js"></script>
 
@@ -184,6 +181,13 @@
           </div>
 
           <div class="cell">
+            <div class="cell-label">Cash Due at Signing</div>
+            <div class="cell-value">
+              <output id="cashDueAtSigning">- -</output>
+            </div>
+          </div>
+          
+          <div class="cell">            
             <div class="cell-label">Amount Financed</div>
             <div class="cell-value">
               <div class="amount-row">
