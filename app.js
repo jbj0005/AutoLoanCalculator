@@ -579,6 +579,14 @@ function updateVehicleSummary(){
      Core calculation
   ========================= */
   function computeAll() {
+    // Hard-remove deprecated Price Delta to Goal UI if present
+    try {
+      const pdRow = document.getElementById('priceDeltaForGoalRow');
+      if (pdRow && pdRow.remove) pdRow.remove();
+      const pdVal = document.getElementById('priceDeltaForGoal');
+      // If a stray value node exists outside the row, remove it too
+      if (pdVal && (!document.getElementById('priceDeltaForGoalRow')) && pdVal.remove) pdVal.remove();
+    } catch {}
     // Inputs
     const fpEl       = $("#finalPrice");
     const tradeEl    = $("#tradeValue");
@@ -668,10 +676,22 @@ if (taxSavingsEl) {
     try {
       const cashDiffVal = Math.max(0, (priceForCalc || 0) - (tradeValue || 0));
       const cashDiffOut = document.getElementById('cashDifferenceOut');
+      // Show cashDifferenceOut only when a trade value is entered (> 0)
+      const showCashDiff = Number.isFinite(tradeValue) && (tradeValue > 0);
       if (cashDiffOut) {
-        cashDiffOut.textContent = fmtCurrency(cashDiffVal);
-        cashDiffOut.classList.add('computed');
+        if (showCashDiff) {
+          cashDiffOut.textContent = fmtCurrency(cashDiffVal);
+          cashDiffOut.classList.add('computed');
+          try { cashDiffOut.style.display = ''; } catch {}
+          try { cashDiffOut.setAttribute('aria-hidden', 'false'); } catch {}
+        } else {
+          cashDiffOut.textContent = '';
+          cashDiffOut.classList.remove('computed');
+          try { cashDiffOut.style.display = 'none'; } catch {}
+          try { cashDiffOut.setAttribute('aria-hidden', 'true'); } catch {}
+        }
       }
+
       const taxableBaseOut = document.getElementById('taxableBaseOut');
       if (taxableBaseOut) {
         taxableBaseOut.textContent = fmtCurrency(tWith.taxableBase);
@@ -778,18 +798,61 @@ try {
     // Goal Payment: compute extra cash down required to meet target monthly
     const goalMonthly = parseCurrency(goalEl?.value ?? "");
     const goalDownOut = document.getElementById("goalDownNeeded") || document.getElementById("goalDownOut");
+    const finalPriceForGoalEl = document.getElementById("finalPriceForGoal");
+    // --- Begin Goal Payment Block ---
     if (goalMonthly > 0 && n > 0) {
-      // Invert PMT to get principal from desired payment
       const pow = Math.pow(1 + r, n);
       const principalNeeded = r ? (goalMonthly * (pow - 1) / (r * pow)) : (goalMonthly * n);
 
       const currentPrincipal = amountFinanced; // reflects financeTF choice above
       const extraDown = Math.max(0, currentPrincipal - principalNeeded);
 
-      if (goalDownOut) goalDownOut.textContent = `Additional Cash Down Needed - ${fmtCurrency(extraDown)}`;
-      if (goalDownOut && goalDownOut.classList) {
-        goalDownOut.classList.toggle("computed", extraDown > 0);
+      if (goalDownOut) {
+        // Present a clear, unit-consistent statement about extra cash down (dollars)
+        // rather than mixing with monthly payment (dollars/month).
+        goalDownOut.textContent = extraDown > 0
+          ? `Extra Cash Down Needed — ${fmtCurrency(extraDown)}`
+          : `No extra cash down needed`;
+        goalDownOut.classList.toggle("computed", true);
       }
+
+      // Compute Final Sale Price required to achieve monthlyPayment = goalMonthly
+      let priceForGoal = NaN;
+      if (!financeTF) {
+        // Principal excludes Taxes & Fees
+        priceForGoal = principalNeeded + tradeValue - payoff + cashDown;
+      } else {
+        // Principal includes Taxes & Fees (piecewise due to county cap)
+        // taxableBase = (price - tradeValue) + dealerFeesTotal  [assumes positive base region]
+        // Case A: taxableBase <= countyCap  -> slope S1 = 1 + stateRate + countyRate
+        // Case B: taxableBase >= countyCap  -> slope S2 = 1 + stateRate (county term saturated)
+        const S1 = 1 + stateRate + countyRate;
+        const S2 = 1 + stateRate;
+        const K1 = payoff - cashDown + feesTotal
+                 - (1 + stateRate + countyRate) * tradeValue
+                 + (stateRate + countyRate) * dealerFeesTotal;
+        const K2 = payoff - cashDown + feesTotal
+                 - (1 + stateRate) * tradeValue
+                 + (stateRate) * dealerFeesTotal
+                 + (countyRate * countyCap);
+        const capThreshold = countyCap + tradeValue - dealerFeesTotal; // price at which taxableBase crosses the cap
+
+        const x1 = (principalNeeded - K1) / S1; // candidate under cap
+        const x2 = (principalNeeded - K2) / S2; // candidate over cap
+
+        // Choose the consistent solution
+        const x1Valid = (x1 <= capThreshold);
+        const x2Valid = (x2 >= capThreshold);
+        priceForGoal = x1Valid ? x1 : x2Valid ? x2 : x1; // fall back to x1 if neither strictly valid
+      }
+
+      if (finalPriceForGoalEl) {
+        finalPriceForGoalEl.textContent = (Number.isFinite(priceForGoal) && priceForGoal > 0)
+          ? fmtCurrency(priceForGoal)
+          : "—";
+        finalPriceForGoalEl.classList.add("computed");
+      }
+
 
       if (autoApplyGoal && !state._applyingGoalDown) {
         state._applyingGoalDown = true;
@@ -799,8 +862,9 @@ try {
         state._applyingGoalDown = false;
         return;
       }
-    } else if (goalDownOut) {
-      goalDownOut.textContent = "";
+    } else {
+      if (goalDownOut) goalDownOut.textContent = "";
+      if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
     }
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
@@ -893,6 +957,7 @@ try {
       goalDownNeeded: "",
       savings: "",
       cashDueAtSigning: "- -",
+      finalPriceForGoal: "- -",
     };
     Object.entries(outs).forEach(([id,val])=>{ const el = $id(id); if (el) el.textContent = val; });
 
