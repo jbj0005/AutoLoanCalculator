@@ -1272,7 +1272,7 @@ input.addEventListener("blur", () => {
     const raw = input.value;
     const msrp = getMsrpFromUI();
     const usedExpr = /msrp/i.test(raw || "") || /^\s*[+\-]/.test(raw || "") || /%/.test(raw || "");
-    const v = parsePriceExpression(raw, msrp);
+    // Persist the fact that user typed an expression; keep their raw text visible
     if (usedExpr) {
       state.finalPriceWasExpr = true;
       state.finalPriceExprRaw = raw;   // save the original text so we can re-evaluate on vehicle change
@@ -1280,10 +1280,9 @@ input.addEventListener("blur", () => {
       state.finalPriceWasExpr = false;
       state.finalPriceExprRaw = null;
     }
-    input.value = v ? fmtCurrency(v) : "";  // latch evaluated value into the field
+    // Do NOT overwrite the user's text; just recompute from it
   } else {
-    const n = parseCurrency(input.value);
-    input.value = n ? fmtCurrency(n) : "";
+    // Do NOT format non-finalPrice fields on blur; leave user input unchanged
   }
   computeAll();
   scheduleSave();
