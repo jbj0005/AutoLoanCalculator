@@ -446,8 +446,8 @@ function parsePriceExpression(raw, msrp = 0) {
     const desc = preset?.desc || "";
     const amt  = preset?.amount ?? "";
     row.innerHTML = `
-      <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" value="${desc}" />
-      <input class="fee-amount" type="text" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
+      <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" enterkeyhint="next" value="${desc}" />
+      <input class="fee-amount" type="text" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" enterkeyhint="next" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
       <button type="button" class="fee-remove" aria-label="Remove fee">✕</button>
     `;
     targetList.appendChild(row);
@@ -914,6 +914,7 @@ if (taxSavingsEl) {
     const goalPriceRow= document.getElementById('finalPriceForGoal')?.closest('.note') || null;
     // --- Begin Goal Payment Block ---
     if (goalMonthly > 0 && n > 0) {
+      const metGoal = Number.isFinite(monthly) && monthly > 0 && monthly <= goalMonthly;
       // Ensure rows are visible when a goal is set
       [goalDownRow, goalAprRow, goalPriceRow].forEach(row => {
         if (!row) return;
@@ -1016,6 +1017,29 @@ if (taxSavingsEl) {
               if (noteWrap) noteWrap.classList.remove('warn');
             }
           }
+        }
+      } catch {}
+
+      // If goal is met, override all Monthly Affordability notes with a congrats message
+      try {
+        if (metGoal) {
+          const congrats = `Congrats! You\'ve Met Your Affordability Goal by `;
+          const delta = Math.max(0, goalMonthly - monthly);
+          const amtHTML = `<span class="delta-pos text-only">${fmtCurrency(delta)}</span>`;
+
+          const downEl = document.getElementById('goalDownNeeded');
+          if (downEl) { downEl.innerHTML = `${congrats}${amtHTML}`; downEl.classList.add('computed'); }
+
+          const aprNote = document.getElementById('goalAprTermNote');
+          if (aprNote) {
+            aprNote.innerHTML = `${congrats}${amtHTML}`;
+            aprNote.classList.add('computed');
+            const wrap = aprNote.closest('.note');
+            if (wrap) wrap.classList.remove('warn');
+          }
+
+          const priceEl = document.getElementById('finalPriceForGoal');
+          if (priceEl) { priceEl.innerHTML = `${congrats}${amtHTML}`; priceEl.classList.add('computed'); }
         }
       } catch {}
       if (autoApplyGoal && !state._applyingGoalDown) {
@@ -1185,10 +1209,43 @@ if (taxSavingsEl) {
   /* =========================
      Event wiring
   ========================= */
+
+  function focusNextInput(fromEl){
+    try{
+      const root = fromEl?.closest('form') || document;
+      const fields = Array.from(root.querySelectorAll('input, select, textarea'))
+        .filter(el => !el.disabled && el.type !== 'hidden' && el.getAttribute('aria-hidden') !== 'true')
+        .filter(el => !/^(checkbox|radio|button|submit|file)$/i.test(el.type || ''))
+        .filter(el => el.offsetParent !== null); // visible-ish
+      const idx = fields.indexOf(fromEl);
+      for (let i = idx + 1; i < fields.length; i++){
+        const target = fields[i];
+        if (target){
+          target.focus?.();
+          try { if (target.select) target.select(); } catch {}
+          break;
+        }
+      }
+    } catch {}
+  }
+
+  function attachEnterAdvance(el){
+    if (!el) return;
+    el.addEventListener('keydown', (e)=>{
+      if (e.key === 'Enter'){
+        e.preventDefault();
+        try { e.currentTarget.blur(); } catch {}
+        try { focusNextInput(e.currentTarget); } catch {}
+        try { scheduleSave(); } catch {}
+      }
+    });
+  }
   function attachCurrencyFormatter(input) {
     if (!input) return;
     // No live currency formatting on input; just recompute
     input.addEventListener("input", debouncedComputeAll);
+    // Enter advances to next input
+    attachEnterAdvance(input);
 input.addEventListener("blur", () => {
   if (input.id === "finalPrice") {
     const raw = input.value;
@@ -1210,8 +1267,6 @@ input.addEventListener("blur", () => {
   computeAll();
   scheduleSave();
 });
-    // keydown Enter still blurs
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
   }
 
   function attachPercentFormatter(input){
@@ -1220,8 +1275,31 @@ input.addEventListener("blur", () => {
       const p = parsePercent(input.value);
       input.value = p ? fmtPercentPlain(p) : "";
       computeAll();
+      try { scheduleSave(); } catch {}
     });
     input.addEventListener("input", debouncedComputeAll);
+    attachEnterAdvance(input);
+  }
+
+  // Ensure enter/return key hint shows on mobile numeric keypads
+  function ensureEnterKeyHints(){
+    try{
+      const all = document.querySelectorAll('input');
+      all.forEach(el => {
+        if (!el || el.type === 'hidden') return;
+        const isNumeric = /^(numeric|decimal)$/i.test(el.getAttribute('inputmode') || '') || /^(tel|search|text)$/i.test(el.type || '');
+        if (isNumeric && !el.hasAttribute('enterkeyhint')) {
+          // Default to 'done'; fee rows prefer 'next'
+          let hk = (el.classList.contains('fee-desc') || el.classList.contains('fee-amount')) ? 'next' : 'done';
+          if (el.id === 'apr' || el.id === 'term') hk = 'next';
+          try { el.setAttribute('enterkeyhint', hk); } catch {}
+        }
+        // Always keep type="text" for numeric inputs to keep Return key visible
+        if (/^(numeric|decimal)$/i.test(el.getAttribute('inputmode') || '') && el.type === 'number') {
+          try { el.type = 'text'; } catch {}
+        }
+      });
+    } catch {}
   }
   // Taxable Base info modal
   document.getElementById('openTaxInfo')?.addEventListener('click', (e)=>{
@@ -1262,7 +1340,7 @@ input.addEventListener("blur", () => {
     });
   })();
 
-function wireInputs(){
+  function wireInputs(){
   // ---- Basic inputs -> live recompute ----
   const onInput = debouncedComputeAll;
   const onChange = () => computeAll();
@@ -1544,7 +1622,9 @@ function wireInputs(){
     attachPercentFormatter(document.getElementById("countyRateInput")); // optional override
 
     // TERM live recompute (also handled in ensureOptionLists)
-    document.getElementById("term")?.addEventListener("input", debouncedComputeAll);
+    const termEl2 = document.getElementById("term");
+    termEl2?.addEventListener("input", debouncedComputeAll);
+    attachEnterAdvance(termEl2);
     // Final Sale Price — realtime recompute (supports formula typing)
     (function(){
   const fp = document.getElementById("finalPrice");
@@ -1596,7 +1676,7 @@ const onFPChange = () => {
 
     // Dealer fees
     const dealerList = document.getElementById("dealerFeesList");
-    document.getElementById("addFee")?.addEventListener("click", () => { if (dealerList) { addFeeRow(dealerList); computeAll(); } });
+    document.getElementById("addFee")?.addEventListener("click", () => { if (dealerList) { addFeeRow(dealerList); try{ensureEnterKeyHints();}catch{} computeAll(); } });
     dealerList?.addEventListener("input", debouncedComputeAll);
 
     // Dealer fee presets (desc only; user supplies amount)
@@ -1613,7 +1693,7 @@ const onFPChange = () => {
 
     // Gov fees + presets
     const govList = document.getElementById("govFeesList");
-    document.getElementById("addGovFee")?.addEventListener("click", () => { if (govList) { addFeeRow(govList); computeAll(); } });
+    document.getElementById("addGovFee")?.addEventListener("click", () => { if (govList) { addFeeRow(govList); try{ensureEnterKeyHints();}catch{} computeAll(); } });
     govList?.addEventListener("input", debouncedComputeAll);
 
     const govSelect = document.getElementById("govFeePreset");
@@ -1788,6 +1868,16 @@ const onFPChange = () => {
   document.addEventListener("DOMContentLoaded", async () => {
     try { initDataLayer(); } catch {}
     try { wireInputs(); } catch {}
+    try { ensureEnterKeyHints(); } catch {}
+    try {
+      const form = document.getElementById('calcForm');
+      form?.addEventListener('submit', (e)=>{
+        e.preventDefault();
+        try { const el = document.activeElement; el?.blur?.(); focusNextInput(el); } catch {}
+        try { scheduleSave(); } catch {}
+        try { computeAll(); } catch {}
+      });
+    } catch {}
     try { await ensureHomeCoords(); } catch {}
     try { await loadVehiclesAndRender(); } catch {}
     computeAll();
