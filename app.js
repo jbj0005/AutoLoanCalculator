@@ -25,7 +25,8 @@
     countyRateUsed: 0,
     prevFocus: null,
     data: null,             // set by initDataLayer()
-    _applyingGoalDown: false
+    _applyingGoalDown: false,
+    tradeAskTouched: false
   };
 
   const HOME_ADDRESS_DEFAULT = "";
@@ -653,10 +654,15 @@ function updateVehicleSummary(){
     const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
     // If user only enters Payoff (no Trade-in Offer), treat it as negative equity
     const payoff     = payoffRaw;
-    const tradeAskPrice = parseCurrency(tradeAskEl?.value ?? "");
-    // Keep the Asking Price placeholder in sync with Loan Payoff
+    let tradeAskPrice = parseCurrency(tradeAskEl?.value ?? "");
+    // Auto-populate Asking Price value from Loan Payoff until the user edits it
     try {
-      if (tradeAskEl) tradeAskEl.placeholder = payoffRaw > 0 ? fmtCurrency(payoffRaw) : (tradeAskEl.placeholder || "Enter Amount");
+      if (tradeAskEl && !state.tradeAskTouched) {
+        if ((tradeAskEl.value == null || String(tradeAskEl.value).trim() === "") && Number.isFinite(payoffRaw)) {
+          tradeAskEl.value = payoffRaw ? fmtCurrency(payoffRaw) : "";
+          tradeAskPrice = payoffRaw;
+        }
+      }
     } catch {}
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
@@ -1213,6 +1219,7 @@ if (taxSavingsEl) {
     state.finalPriceWasExpr = false;
     state.finalPriceExprRaw = null;
     state.cashDownTouched = false;
+    state.tradeAskTouched = false;
     state._recalcAfterAutoDown = false;
     if (Array.isArray(state.dealerFees)) state.dealerFees.length = 0;
     if (Array.isArray(state.govFees)) state.govFees.length = 0;
@@ -1625,6 +1632,14 @@ input.addEventListener("blur", () => {
       cd.addEventListener("input", markTouched);
       cd.addEventListener("change", markTouched);
       cd.addEventListener("blur", markTouched);
+    })();
+    (function(){
+      const ta = document.getElementById('tradeAskPrice');
+      if (!ta) return;
+      const markTouched = () => { state.tradeAskTouched = true; };
+      ta.addEventListener('input', markTouched);
+      ta.addEventListener('change', markTouched);
+      ta.addEventListener('blur', markTouched);
     })();
     // Currency-like inputs
     ["finalPrice", "tradeValue", "loanPayoff", "cashDown", "goalMonthly", "msrp", "tradeAskPrice"]
