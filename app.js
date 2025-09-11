@@ -678,8 +678,8 @@ function updateVehicleSummary(){
     // APR & TERM with functional defaults if inputs are blank
     const _aprParsed  = parsePercent(aprEl?.value ?? aprEl?.textContent ?? ""); // % number
     const _termParsed = parseInt(termEl?.value ?? termEl?.textContent ?? "0", 10) || 0;
-    const aprPercent  = _aprParsed || 6.5;  // default to 6.5% for calc if user left blank
-    const term        = _termParsed || 72;  // default to 72 months for calc if user left blank
+    const aprPercent  = _aprParsed || (window.CONSTS?.DEFAULTS?.APR_PERCENT ?? 6.5);
+    const term        = _termParsed || (window.CONSTS?.DEFAULTS?.TERM_MONTHS ?? 72);
 
     // Monthly rate (APR/12) -> #monthlyApr
     const monthlyRateEl =
@@ -705,12 +705,12 @@ function updateVehicleSummary(){
     const autoCounty     = getCountyRate(inferredCounty);
 
     // Default county rate to 1% when unspecified
-    const countyRate     = (userCountyRate ?? (autoCounty.rate || 0.01));
+    const countyRate     = (userCountyRate ?? (autoCounty.rate || (window.CONSTS?.DEFAULTS?.COUNTY_RATE_FALLBACK ?? 0.01)));
     const defaulted      = userCountyRate == null ? (autoCounty.defaulted && !autoCounty.rate) : false;
     state.countyRateUsed = countyRate;
 
-    const stateRate = state.countyRates?.meta?.stateRate ?? 0.06;
-    const countyCap = state.countyRates?.meta?.countyCap ?? 5000;
+    const stateRate = state.countyRates?.meta?.stateRate ?? (window.CONSTS?.DEFAULTS?.STATE_TAX_RATE ?? 0.06);
+    const countyCap = state.countyRates?.meta?.countyCap ?? (window.CONSTS?.DEFAULTS?.COUNTY_CAP ?? 5000);
 
     // Taxes (with / without trade)
     const tWith    = computeTaxes({ priceForCalc, tradeValue, dealerFeesTotal, stateRate, countyRate, countyCap });
@@ -999,7 +999,8 @@ if (taxSavingsEl) {
             const termNeeded = (nNeededMo == null) ? null : nNeededMo;
 
             const warnText = 'Out of Range - Try Different Affordability Amount';
-            const outOfRange = (aprPart != null && aprPart <= 0) || (nCur > 96) || (termNeeded != null && termNeeded > 96);
+            const maxTerm = window.CONSTS?.LIMITS?.MAX_TERM_MONTHS ?? 96;
+            const outOfRange = (aprPart != null && aprPart <= 0) || (nCur > maxTerm) || (termNeeded != null && termNeeded > maxTerm);
 
             const noteWrap = noteEl.closest('.note');
             if (outOfRange) {

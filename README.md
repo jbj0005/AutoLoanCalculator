@@ -1,4 +1,4 @@
-# Auto Loan Calculator (GitHub Pages) — v0.4.0
+# Auto Loan Calculator (GitHub Pages) — v0.4.1
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 

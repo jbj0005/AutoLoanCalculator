@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.4.1 - 2025-09-11
+- UX: Only show “Asking vs. Offer Delta” when an Asking Price is entered
+- UX: Dealer Fee preset selection moves focus to the amount field
+- UX: Muted all note styles so none appear overly bright
+- Mobile: Keep input raw while typing; format currency on blur
+- Trade-in: Use Loan Payoff behind the scenes when Asking Price is blank
+- Structure: Add vars.js for centralized defaults/limits; app.js reads from it
+
+[Compare changes](https://github.com/jbj0005/AutoLoanCalculator/compare/v0.4.0...v0.4.1)
+
 ## v0.4.0 - 2025-09-11
 - New: “MONTHLY AFFORDABILITY” cell with goal monthly input and strategy notes
 - New: Congratulatory note when goal is met (hides strategy notes)

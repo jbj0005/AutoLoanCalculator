@@ -113,7 +113,9 @@ body{
 .placeholder{ font-size: 12px !important; color: var(--muted) !important; }
 .big.placeholder{ font-size: 12px !important; font-variant-numeric: normal }
 .note{margin-top:6px; font-size:12px; color: var(--muted); opacity: .75; white-space: nowrap}
-.note.computed, .note .computed{ color: var(--text); opacity: 1 }
+
+/* Keep all notes muted, even when marked as computed */
+.note.computed, .note .computed{ color: var(--muted); opacity: .75 }
 .note.warn{color: var(--warn)}
 .note.faint{opacity:.75}
 .hint{white-space: nowrap}
