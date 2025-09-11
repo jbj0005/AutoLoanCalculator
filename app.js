@@ -654,6 +654,10 @@ function updateVehicleSummary(){
     // If user only enters Payoff (no Trade-in Offer), treat it as negative equity
     const payoff     = payoffRaw;
     const tradeAskPrice = parseCurrency(tradeAskEl?.value ?? "");
+    // Keep the Asking Price placeholder in sync with Loan Payoff
+    try {
+      if (tradeAskEl) tradeAskEl.placeholder = payoffRaw > 0 ? fmtCurrency(payoffRaw) : (tradeAskEl.placeholder || "Enter Amount");
+    } catch {}
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
     // Trade equity breakdown (positive vs. negative)
@@ -736,7 +740,9 @@ if (taxSavingsEl) {
       if (deltaEl) {
         const hasOffer = Number.isFinite(tradeValue) && tradeValue > 0;
         if (hasOffer) {
-          const delta = (tradeAskPrice || 0) - (tradeValue || 0);
+          // Use loanPayoff as the effective Asking Price if user hasn't entered one
+          const askEff = (tradeAskPrice > 0) ? tradeAskPrice : payoffRaw;
+          const delta = (askEff || 0) - (tradeValue || 0);
           deltaEl.textContent = formatAccounting(delta);
           deltaEl.classList.remove('delta-pos','delta-neg','text-only');
           // Flip accounting colors: Negative (offer > asking) shown as positive/green
