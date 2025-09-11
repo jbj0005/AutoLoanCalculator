@@ -62,7 +62,7 @@
          <div class="cell">
             <div class="cell-label">Final Sale Price</div>
             <div class="cell-value">
-              <input id="finalPrice" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$80,000.00" />
+              <input id="finalPrice" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
               <div id="savings" class="note"></div>
               <div class="hint">Supports formulas: e.g. <code>(MSRP - $7,500)</code></div>
             </div>
@@ -72,19 +72,22 @@
             <div class="cell-label">Trade-in</div>
             <div class="cell-value">
               <div class="trade-grid">
-                <div class="t-label">Trade-in Value</div>
+                <div class="t-label">Trade-in Offer:</div>
                 <div class="op">−</div>
                 <div class="t-label">Trade-in Payoff</div>
                 <div class="op">=</div>
                 <div class="t-label">Trade Equity</div>
 
-                <input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$18,000.00" />
+                <input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
                 <div class="op">−</div>
-                <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$14,000.00" />
+                <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
                 <div class="op">=</div>
                 <output id="tradeEquity">- -</output>
-                <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Enter a Trade-in Value to see your Tax Savings</div>
+                <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Enter a Trade-in Offer to see your Tax Savings</div>
               </div>
+              <div class="note">Trade-in Tax Value: <span id="tradeTaxValue"></span></div>
+              <div class="note" id="tradeAskPriceRow">Trade-in Asking Price: <input id="tradeAskPrice" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="12" /></div>
+              <div class="note">Asking vs. Offer Delta: <span id="tradeAskOfferDelta"></span></div>
             </div>
           </div>
 
@@ -177,10 +180,9 @@
           </div>
 
           <div class="cell">
-            <div class="cell-label">Cash Down</div>
+            <div class="cell-label">Additional Cash Down</div>
             <div class="cell-value">
               <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
-              <div id="goalDownNeeded" class="note goal-down-out" aria-live="polite"></div>
             </div>
           </div>
 
@@ -197,18 +199,17 @@
                   <input id="financeTF" type="checkbox" checked />
                   Finance Taxes &amp; Fees?
                 </label>
+                <span id="pmtSavingsTF" class="note faint" aria-live="polite"></span>
               </div>
 
               <div class="amount-row">
                 <label class="checkbox">
                   <input id="financeNegEquity" type="checkbox" checked />
-                  Finance Negative Equity? <span id="negEquityValue" class="faint"></span>
+                  Finance Negative Equity?
                 </label>
+                <span id="pmtSavingsNegEq" class="note faint" aria-live="polite"></span>
               </div>
 
-              <div class="note faint">
-                <span id="pmtSavings">—</span>
-              </div>
             </div>
           </div>
 
@@ -226,21 +227,23 @@
                 <div class="big" id="monthlyPayment">- -</div>
                 <button id="saveScenarioBtn" class="btn" type="button">Save Scenario</button>
               </div>
-              <div class="note faint" style="margin-top:6px">APR / Term</div>
               <div class="inline-2" style="margin-top:8px">
-                <input id="apr" type="text" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
-                <div class="input-with-suffix">
-                  <input id="term" list="termOptions" inputmode="numeric" enterkeyhint="done" pattern="[0-9]*" placeholder="60" value="72" />
-                  <span class="suffix">Months</span>
+                <div>
+                  <div class="note faint">APR</div>
+                  <input id="apr" type="text" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
                 </div>
-                <datalist id="termOptions">
-                  <option value="36"></option>
-                  <option value="42"></option>
-                  <option value="48"></option>
-                  <option value="60"></option>
-                  <option value="72"></option>
-                  <option value="84"></option>
-                </datalist>
+                <div>
+                  <div class="note faint">TERM</div>
+                  <input id="term" list="termOptions" inputmode="numeric" enterkeyhint="done" pattern="[0-9]*" placeholder="60" value="72" />
+                  <datalist id="termOptions">
+                    <option value="36"></option>
+                    <option value="42"></option>
+                    <option value="48"></option>
+                    <option value="60"></option>
+                    <option value="72"></option>
+                    <option value="84"></option>
+                  </datalist>
+                </div>
               </div>
               <div class="note">Monthly Rate = <span id="monthlyApr">—</span></div>
               <div class="note faint">0% APR reference: <span id="payment0">- -</span></div>
@@ -249,11 +252,12 @@
           </div>
 
           <div class="cell" id="goalMonthlyCell">
-            <div class="cell-label">Goal Monthly Payment (see APR / TERM below):</div>
+            <div class="cell-label">MONTHLY AFFORDABILITY</div>
             <div class="cell-value">
-              <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Set Ideal Monthly Payment" size="8" />
-              <div id="goalAprTermNote" class="note" aria-live="polite"></div>
-              <div id="finalPriceForGoalRow" class="note" aria-live="polite">Required Final Sale Price — <span id="finalPriceForGoal">—</span></div>
+              <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="8" />
+              <div class="note">Additional Cash Down: <span id="goalDownNeeded">—</span></div>
+              <div class="note wrap-note">Negotiate APR/TERM: <span id="goalAprTermNote">—</span></div>
+              <div class="note">Negotiate Sale Price: <span id="finalPriceForGoal">—</span></div>
             </div>
           </div>
         </form>
@@ -279,7 +283,7 @@
             </div>
             <div class="db-row">
               <label for="dbMsrp">MSRP / Asking Price</label>
-              <input id="dbMsrp" type="text" inputmode="decimal" placeholder="$83,000.00" />
+              <input id="dbMsrp" type="text" inputmode="decimal" placeholder="Enter Amount" />
             </div>
           
         </div>
@@ -362,7 +366,7 @@ Orange	0.5%'></textarea>
           <div class="db-row" style="display:block">
             <div class="note wrap-note">Taxable Base is the amount your sales tax is calculated on.</div>
             <div class="note wrap-note">
-              In Florida: <strong>Taxable Base = max(Final Sale Price − Trade-in Value, 0) + Dealer Fees</strong> (for dealer fees that are taxable).
+              In Florida: <strong>Taxable Base = max(Final Sale Price − Trade-in Offer, 0) + Dealer Fees</strong> (for dealer fees that are taxable).
             </div>
             <div class="hint wrap-note">
               Government/DMV fees like title, tag, lien are not taxable. County surtax (if any) applies only to the first $5,000 of the taxable base.

@@ -191,6 +191,7 @@
       msrp,
       finalPrice: parsePriceExpression(val('finalPrice'), msrp),
       tradeValue: num('tradeValue'),
+      tradeAskPrice: num('tradeAskPrice'),
       loanPayoff: num('loanPayoff'),
       cashDown: num('cashDown'),
       apr: parsePercent(val('apr')) || 6.5,
@@ -209,6 +210,7 @@
 
     setMoney('finalPrice', snap.finalPrice);
     setMoney('tradeValue', snap.tradeValue);
+    setMoney('tradeAskPrice', snap.tradeAskPrice);
     setMoney('loanPayoff', snap.loanPayoff);
     setMoney('cashDown', snap.cashDown);
     setVal('apr', snap.apr ? fmtPercentPlain(snap.apr) : '');
@@ -445,7 +447,7 @@ function parsePriceExpression(raw, msrp = 0) {
     const amt  = preset?.amount ?? "";
     row.innerHTML = `
       <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" value="${desc}" />
-      <input class="fee-amount" type="text" inputmode="decimal" placeholder="$0.00" aria-label="Fee amount" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
+      <input class="fee-amount" type="text" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
       <button type="button" class="fee-remove" aria-label="Remove fee">✕</button>
     `;
     targetList.appendChild(row);
@@ -629,6 +631,7 @@ function updateVehicleSummary(){
     // Inputs
     const fpEl       = $("#finalPrice");
     const tradeEl    = $("#tradeValue");
+    const tradeAskEl = $("#tradeAskPrice");
     const payoffEl   = $("#loanPayoff");
     const cashDownEl = $("#cashDown");
     const aprEl      = $("#apr");
@@ -648,8 +651,9 @@ function updateVehicleSummary(){
     }
     const tradeValue = parseCurrency(tradeEl?.value ?? "");
     const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
-    // If user only enters Payoff (no Trade-in Value), treat it as negative equity
+    // If user only enters Payoff (no Trade-in Offer), treat it as negative equity
     const payoff     = payoffRaw;
+    const tradeAskPrice = parseCurrency(tradeAskEl?.value ?? "");
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
     // Trade equity breakdown (positive vs. negative)
@@ -704,7 +708,7 @@ function updateVehicleSummary(){
     const tNoTrade = computeTaxes({ priceForCalc, tradeValue: 0, dealerFeesTotal, stateRate, countyRate, countyCap });
     const taxes    = tWith.taxes;
 
-// Tax Savings w/ Trade-in — show under Trade-in Value label
+// Tax Savings w/ Trade-in — show under Trade-in Offer label
 const taxSavings = Math.max(0, tNoTrade.taxes - taxes);
 const taxSavingsEl = document.getElementById("tradeSavingsWith") || document.getElementById("taxSavingsTrade") || document.getElementById("taxSavings");
 if (taxSavingsEl) {
@@ -712,16 +716,54 @@ if (taxSavingsEl) {
   if (hasTrade) {
     // If price not available yet, show $0.00 until it is
     const shown = (priceForCalc > 0) ? taxSavings : 0;
-    taxSavingsEl.textContent = `Trade-in Tax Savings - ${fmtCurrency(shown)}`;
+    taxSavingsEl.textContent = `Trade-in Tax Savings: ${fmtCurrency(shown)}`;
     taxSavingsEl.classList.add("computed");
     taxSavingsEl.setAttribute("aria-live", "polite");
   } else {
     // Always show prompt text when no trade value is entered
-    taxSavingsEl.textContent = "Enter a Trade-in Value to see your Tax Savings";
+    taxSavingsEl.textContent = "Enter a Trade-in Offer to see your Tax Savings";
     taxSavingsEl.classList.remove("computed");
     taxSavingsEl.setAttribute("aria-live", "polite");
   }
 }
+    // Trade-in Tax Value = Trade-in Offer + Trade-in Tax Savings
+    try {
+      const taxValEl = document.getElementById('tradeTaxValue');
+      if (taxValEl) {
+        const taxVal = Math.max(0, tradeValue) + Math.max(0, taxSavings);
+        if (taxVal > 0) {
+          taxValEl.textContent = fmtCurrency(taxVal);
+          taxValEl.classList.add('computed');
+        } else {
+          taxValEl.textContent = '';
+          taxValEl.classList.remove('computed');
+        }
+      }
+    } catch {}
+
+    // Asking vs Offer Delta = Asking - Offer (accounting format; colored text only)
+    // Only display when a Trade-in Offer is provided
+    try {
+      const deltaEl = document.getElementById('tradeAskOfferDelta');
+      const deltaRow = deltaEl?.closest('.note') || null;
+      if (deltaEl) {
+        const hasOffer = Number.isFinite(tradeValue) && tradeValue > 0;
+        if (hasOffer) {
+          const delta = (tradeAskPrice || 0) - (tradeValue || 0);
+          deltaEl.textContent = formatAccounting(delta);
+          deltaEl.classList.remove('delta-pos','delta-neg','text-only');
+          // Flip accounting colors: Negative (offer > asking) shown as positive/green
+          if (delta < 0) deltaEl.classList.add('delta-pos');
+          else if (delta > 0) deltaEl.classList.add('delta-neg');
+          deltaEl.classList.add('text-only');
+          if (deltaRow) { deltaRow.style.display = ''; deltaRow.setAttribute('aria-hidden','false'); }
+        } else {
+          deltaEl.textContent = '';
+          deltaEl.classList.remove('delta-pos','delta-neg','text-only');
+          if (deltaRow) { deltaRow.style.display = 'none'; deltaRow.setAttribute('aria-hidden','true'); }
+        }
+      }
+    } catch {}
     // CASH DIFFERENCE / TAXABLE BASE (displayed before Dealer Fees)
     try {
       const cashDiffVal = Math.max(0, (priceForCalc || 0) - (tradeValue || 0));
@@ -866,8 +908,17 @@ if (taxSavingsEl) {
     const goalMonthly = parseCurrency(goalEl?.value ?? "");
     const goalDownOut = document.getElementById("goalDownNeeded") || document.getElementById("goalDownOut");
     const finalPriceForGoalEl = document.getElementById("finalPriceForGoal");
+    // Rows (notes) inside Monthly Affordability cell
+    const goalDownRow = document.getElementById('goalDownNeeded')?.closest('.note') || null;
+    const goalAprRow  = document.getElementById('goalAprTermNote')?.closest('.note') || null;
+    const goalPriceRow= document.getElementById('finalPriceForGoal')?.closest('.note') || null;
     // --- Begin Goal Payment Block ---
     if (goalMonthly > 0 && n > 0) {
+      // Ensure rows are visible when a goal is set
+      [goalDownRow, goalAprRow, goalPriceRow].forEach(row => {
+        if (!row) return;
+        try { row.style.display = ''; row.setAttribute('aria-hidden','false'); } catch {}
+      });
       const pow = Math.pow(1 + r, n);
       const principalNeeded = r ? (goalMonthly * (pow - 1) / (r * pow)) : (goalMonthly * n);
 
@@ -944,15 +995,26 @@ if (taxSavingsEl) {
               : Math.ceil(nNeededRaw);
 
             const aprPart  = (aprPctNeeded == null)
-              ? 'APR ~—'
-              : `APR ~${fmtPercentPlain(aprPctNeeded)}`;
-            const termPart = (nNeededMo == null)
-              ? '~— months'
-              : `~${nNeededMo} months`;
+              ? null
+              : aprPctNeeded;
+            const termNeeded = (nNeededMo == null) ? null : nNeededMo;
 
-            // Final concise note per spec: "To Meet Goal: APR ~%X.XX @ (term), OR ~XX months @ (apr)"
-            noteEl.textContent = `${'To Meet Goal:'} ${aprPart} @ ${nCur} months, OR ${termPart} @ ${fmtPercentPlain(aprPercent)}`;
-            noteEl.classList.add('computed');
+            const warnText = 'Out of Range - Try Different Affordability Amount';
+            const outOfRange = (aprPart != null && aprPart <= 0) || (nCur > 96) || (termNeeded != null && termNeeded > 96);
+
+            const noteWrap = noteEl.closest('.note');
+            if (outOfRange) {
+              noteEl.textContent = warnText;
+              noteEl.classList.remove('computed');
+              if (noteWrap) noteWrap.classList.add('warn');
+            } else {
+              const aprPartStr  = (aprPart == null) ? 'APR ~—' : `APR ~${fmtPercentPlain(aprPart)}`;
+              const termPartStr = (termNeeded == null) ? '~— months' : `~${termNeeded} months`;
+              // Concise note for APR/TERM adjustments (value-only; label is in HTML)
+              noteEl.textContent = `${aprPartStr} @ ${nCur} months, OR ${termPartStr} @ ${fmtPercentPlain(aprPercent)}`;
+              noteEl.classList.add('computed');
+              if (noteWrap) noteWrap.classList.remove('warn');
+            }
           }
         }
       } catch {}
@@ -966,9 +1028,14 @@ if (taxSavingsEl) {
       }
     } else {
       if (goalDownOut) goalDownOut.textContent = "";
-      if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
+      if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = ""; finalPriceForGoalEl.classList.remove("computed"); }
       const noteEl = document.getElementById("goalAprTermNote");
       if (noteEl) { noteEl.textContent = ""; noteEl.classList.remove("computed"); }
+      // Hide rows when no goal value is set
+      [goalDownRow, goalAprRow, goalPriceRow].forEach(row => {
+        if (!row) return;
+        try { row.style.display = 'none'; row.setAttribute('aria-hidden','true'); row.classList.remove('warn','computed'); } catch {}
+      });
     }
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
@@ -1011,30 +1078,44 @@ if (taxSavingsEl) {
     if (p0El) p0El.textContent = fmtCurrency(zeroAprMonthly);
     if (pdEl) pdEl.textContent = financingCostPerMonth > 0 ? fmtCurrency(financingCostPerMonth) : fmtCurrency(0);
 
-    // Recommendation note below Amount Financed (pmtSavings)
+    // Per-row savings: show inline near each toggle
     const pmtSavingsEl = document.getElementById("pmtSavings");
-    if (pmtSavingsEl) {
-      const tfOn = !!financeTF;
-      const neOn = !!financeNegEquity && negEquity > 0;
+    if (pmtSavingsEl) { pmtSavingsEl.textContent = ""; pmtSavingsEl.classList.remove('computed'); }
 
-      // Savings broken out by toggle
-      const items = [];
-      if (tfOn) items.push({ label: 'Taxes & Fees', savings: dontFinanceSavingsTF });
-      if (neOn) items.push({ label: 'Negative Equity', savings: dontFinanceSavingsNegEq });
-
-      if (items.length === 0) {
-        // Already paying both in cash (or no neg equity)
-        const total = dontFinanceSavingsTF + (negEquity > 0 ? dontFinanceSavingsNegEq : 0);
-        pmtSavingsEl.textContent = `Sweet! You're Saving ${fmtCurrency(total)} /month!`;
-      } else if (items.length === 1) {
-        const it = items[0];
-        pmtSavingsEl.textContent = `Pay Cash - Save ${fmtCurrency(it.savings)} /month!`;
+    const tfSavingsEl = document.getElementById('pmtSavingsTF');
+    if (tfSavingsEl) {
+      const hasTF = Number.isFinite(dontFinanceSavingsTF) && dontFinanceSavingsTF > 0;
+      if (hasTF) {
+        const msg = financeTF
+          ? `Save ${fmtCurrency(dontFinanceSavingsTF)} /mo`
+          : `Saving ${fmtCurrency(dontFinanceSavingsTF)} /mo`;
+        tfSavingsEl.textContent = msg;
+        tfSavingsEl.style.display = '';
+        tfSavingsEl.setAttribute('aria-hidden', 'false');
       } else {
-        const total = items.reduce((a, b) => a + (b.savings || 0), 0);
-        const breakdown = items.map(it => `${it.label} ${fmtCurrency(it.savings)}`).join(' + ');
-        pmtSavingsEl.textContent = `Pay Cash — Save ${fmtCurrency(total)} /month (${breakdown})`;
+        tfSavingsEl.textContent = '';
+        tfSavingsEl.style.display = 'none';
+        tfSavingsEl.setAttribute('aria-hidden', 'true');
       }
-      pmtSavingsEl.classList.toggle('computed', true);
+      tfSavingsEl.classList.remove('computed');
+    }
+
+    const neSavingsEl = document.getElementById('pmtSavingsNegEq');
+    if (neSavingsEl) {
+      const hasNE = (negEquity > 0) && Number.isFinite(dontFinanceSavingsNegEq) && dontFinanceSavingsNegEq > 0;
+      if (hasNE) {
+        const msg = financeNegEquity
+          ? `Save ${fmtCurrency(dontFinanceSavingsNegEq)} /mo`
+          : `Saving ${fmtCurrency(dontFinanceSavingsNegEq)} /mo`;
+        neSavingsEl.textContent = msg;
+        neSavingsEl.style.display = '';
+        neSavingsEl.setAttribute('aria-hidden', 'false');
+      } else {
+        neSavingsEl.textContent = '';
+        neSavingsEl.style.display = 'none';
+        neSavingsEl.setAttribute('aria-hidden', 'true');
+      }
+      neSavingsEl.classList.remove('computed');
     }
 
     // Keep vehicle summary in sync with latest MSRP/name
@@ -1047,7 +1128,7 @@ if (taxSavingsEl) {
     const $id = (id) => document.getElementById(id);
 
     // Inputs to clear (keep vehicle selection intact)
-    ["finalPrice","tradeValue","loanPayoff","cashDown","goalMonthly","apr","term"].forEach((id)=>{
+    ["finalPrice","tradeValue","loanPayoff","cashDown","goalMonthly","apr","term","tradeAskPrice"].forEach((id)=>{
       const el = $id(id);
       if (el) { el.value = ""; el.placeholder = ""; }
     });
@@ -1078,7 +1159,7 @@ if (taxSavingsEl) {
 
     // Restore Trade-in prompt
     const ts = $id("tradeSavingsWith");
-    if (ts) { ts.textContent = "Enter a Trade-in Value to see your Tax Savings"; ts.classList.remove("computed"); }
+    if (ts) { ts.textContent = "Enter a Trade-in Offer to see your Tax Savings"; ts.classList.remove("computed"); }
 
     // Default Finance Taxes & Fees to checked
     const financeTF = $id("financeTF");
@@ -1106,6 +1187,8 @@ if (taxSavingsEl) {
   ========================= */
   function attachCurrencyFormatter(input) {
     if (!input) return;
+    // No live currency formatting on input; just recompute
+    input.addEventListener("input", debouncedComputeAll);
 input.addEventListener("blur", () => {
   if (input.id === "finalPrice") {
     const raw = input.value;
@@ -1127,7 +1210,7 @@ input.addEventListener("blur", () => {
   computeAll();
   scheduleSave();
 });
-    input.addEventListener("input", debouncedComputeAll);
+    // keydown Enter still blurs
     input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); input.blur(); } });
   }
 
@@ -1186,7 +1269,7 @@ function wireInputs(){
 
   // Numeric/currency/percent inputs we care about
   const ids = [
-    'finalPrice','tradeValue','loanPayoff','cashDown',
+    'finalPrice','tradeValue','loanPayoff','cashDown','tradeAskPrice',
     'apr','term','goalMonthly','countyRateInput'
   ];
   ids.forEach(id => {
@@ -1452,7 +1535,7 @@ function wireInputs(){
       cd.addEventListener("blur", markTouched);
     })();
     // Currency-like inputs
-    ["finalPrice", "tradeValue", "loanPayoff", "cashDown", "goalMonthly", "msrp"]
+    ["finalPrice", "tradeValue", "loanPayoff", "cashDown", "goalMonthly", "msrp", "tradeAskPrice"]
       .map(id => document.getElementById(id))
       .forEach(el => attachCurrencyFormatter(el));
 

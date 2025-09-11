@@ -98,7 +98,16 @@ body{
   border: 1px solid var(--border);
   background: #0f1319; /* match card background */
   color: var(--text);
+  /* Allow inputs to flex within rows without overflow */
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 auto;
 }
+/* Inputs inside inline flex/grouped rows should not overflow */
+.inline-2 input, .inline-2 select{ min-width: 0; max-width: 100%; }
+.input-with-suffix input{ flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.amount-row input, .amount-row select{ flex: 1 1 auto; min-width: 0; max-width: 100%; }
+.note input{ flex: 1 1 auto; min-width: 0; max-width: 100%; }
 .value output{font-variant-numeric: tabular-nums}
 .big{font-size: 20px; font-variant-numeric: tabular-nums}
 .placeholder{ font-size: 12px !important; color: var(--muted) !important; }
@@ -122,8 +131,9 @@ body{
 input[type="checkbox"]{width:16px; height:16px}
 
 .fees-list{display:flex; flex-direction:column; gap:8px}
-.fee-row{display:grid; grid-template-columns: 1fr 140px auto; gap:8px; align-items:center}
-.fee-row input{width:100%}
+.fee-row{display:grid; grid-template-columns: minmax(0,1fr) minmax(90px,160px) auto; gap:8px; align-items:center}
+.fee-row input{width:100%; min-width:0; max-width:100%}
+.fee-row .fee-desc, .fee-row .fee-amount{ min-width:0; max-width:100% }
 .fee-row .remove{background: transparent; border:1px solid var(--border); color: var(--muted); padding:8px 10px; border-radius:8px}
 .fees-actions{display:flex; align-items:center; gap:8px; margin-top:8px}
 .fees-actions .spacer{flex:1}
@@ -242,6 +252,8 @@ input[type="checkbox"]{width:16px; height:16px}
 /* Equity negative style (accounting-style) */
 .delta-neg{color:#fda4a4; background:#3a0f13; padding:2px 6px; border-radius:6px}
 .delta-pos{color:#9ff3c3; background:#12281d; padding:2px 6px; border-radius:6px}
+.text-only.delta-neg, .text-only .delta-neg{ background: transparent !important; padding: 0 !important; }
+.text-only.delta-pos, .text-only .delta-pos{ background: transparent !important; padding: 0 !important; }
 .inline-2{display:flex; gap:8px}
 .inline-2 > *{flex:1}
 
@@ -285,7 +297,10 @@ input[type="checkbox"]{width:16px; height:16px}
   box-sizing: border-box;
   flex: 0 0 auto;
 }
-.goal-input{ width:auto; max-width:8ch; box-sizing:border-box; flex:0 0 auto }
+.goal-input{ width:auto; box-sizing:border-box; flex: 1 1 8ch; min-width: 8ch; max-width: 100% }
+/* Ensure Trade-in Asking Price can display up to $10,000.00 without clipping */
+#tradeAskPriceRow{ display:flex; align-items: baseline; gap:6px }
+#tradeAskPrice{ min-width:12ch; max-width:100%; flex: 1 1 12ch }
 .goal-down-out{
   display: block;
   width: 100%;
