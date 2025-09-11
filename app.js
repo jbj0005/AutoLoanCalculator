@@ -453,6 +453,14 @@ function parsePriceExpression(raw, msrp = 0) {
     `;
     targetList.appendChild(row);
     attachCurrencyFormatter($(".fee-amount", row));
+    // Hitting Enter in the description moves focus to the amount field
+    const descEl = $(".fee-desc", row);
+    const amtEl  = $(".fee-amount", row);
+    if (descEl && amtEl) {
+      descEl.addEventListener('keydown', (e)=>{
+        if (e.key === 'Enter') { e.preventDefault(); try { descEl.blur(); } catch {}; amtEl.focus?.(); amtEl.select?.(); }
+      });
+    }
     $(".fee-remove", row)?.addEventListener("click", () => { row.remove(); computeAll(); });
   }
 
@@ -655,15 +663,6 @@ function updateVehicleSummary(){
     // If user only enters Payoff (no Trade-in Offer), treat it as negative equity
     const payoff     = payoffRaw;
     let tradeAskPrice = parseCurrency(tradeAskEl?.value ?? "");
-    // Auto-populate Asking Price value from Loan Payoff until the user edits it
-    try {
-      if (tradeAskEl && !state.tradeAskTouched) {
-        if ((tradeAskEl.value == null || String(tradeAskEl.value).trim() === "") && Number.isFinite(payoffRaw)) {
-          tradeAskEl.value = payoffRaw ? fmtCurrency(payoffRaw) : "";
-          tradeAskPrice = payoffRaw;
-        }
-      }
-    } catch {}
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
     // Trade equity breakdown (positive vs. negative)
@@ -1716,7 +1715,10 @@ const onFPChange = () => {
       const desc = (opt.textContent || opt.value || "").trim() || "Dealer Fee";
       addFeeRow(dealerList, { desc }); // amount left blank for user to enter
       e.currentTarget.selectedIndex = 0;
-      $$(".fee-desc", dealerList).slice(-1)[0]?.focus?.();
+      try { ensureEnterKeyHints(); } catch {}
+      // Move focus directly to the amount field for quick entry
+      const lastAmt = $$(".fee-amount", dealerList).slice(-1)[0];
+      if (lastAmt) { lastAmt.focus?.(); lastAmt.select?.(); }
       computeAll();
     });
 
