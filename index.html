@@ -106,9 +106,19 @@
             <div class="cell-value">
               <div id="dealerFeesList" class="fees-list"></div>
               <div class="fees-actions">
+                <select id="dealerFeePreset" class="preset-select small">
+                  <option value="">Presets…</option>
+                  <option value="Doc Fee">Doc Fee</option>
+                  <option value="Service &amp; Handling">Service &amp; Handling</option>
+                  <option value="Used Tire / Battery">Used Tire / Battery</option>
+                  <option value="Delivery">Delivery</option>
+                  <option value="Electronic Filing">Electronic Filing</option>
+                  <option value="Extended Warranty">Extended Warranty</option>
+                  <option value="Tire Protection">Tire Protection</option>
+                </select>
                 <button id="addFee" type="button" class="btn small">Add Fee</button>
                 <span class="spacer"></span>
-                <span>Total: <strong id="dealerFeesTotal">$0.00</strong></span>
+                <span>      <strong id="dealerFeesTotal">$0.00</strong></span>
               </div>
             </div>
           </div>
@@ -144,7 +154,7 @@
                 </select>
                 <button id="addGovFee" type="button" class="btn small">Add Fee</button>
                 <span class="spacer"></span>
-                <span>Total: <strong id="govFeesTotal">$0.00</strong></span>
+                <span>      <strong id="govFeesTotal">$0.00</strong></span>
               </div>
             </div>
           </div>
@@ -169,50 +179,55 @@
           <div class="cell">
             <div class="cell-label">Cash Down</div>
             <div class="cell-value">
-              <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="$5,000.00" />
-              <div class="note downpayment-goal" aria-live="polite">
-                <div class="goal-row">
-                  <span>Ideal Monthly Payment (at current APR / TERM below):</span>
-                  <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Set Ideal Monthly Payment" size="8" />
-                </div>
-                <div id="goalDownNeeded" class="goal-down-out"></div>
-                <div id="goalAprTermNote" class="note" aria-live="polite"></div>
-                <div class="note" id="finalPriceForGoalRow" aria-live="polite">
-                  Required Final Sale Price — <span id="finalPriceForGoal">—</span>
-                </div>
-                <div class="note" id="priceDeltaForGoalRow" aria-live="polite">
-                  Price Gap to Goal — <span id="priceDeltaForGoal">—</span>
-                </div>
+              <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+              <div id="goalDownNeeded" class="note goal-down-out" aria-live="polite"></div>
+            </div>
+          </div>
+
+          
+
+          <div class="cell" id="cashDueCell">
+            <div class="cell-label with-action">CASH DUE AT SIGNING
+              <span id="cashDueAtSigning" class="big">- -</span>
+            </div>
+            <div class="cell-value">
+
+              <div class="amount-row">
+                <label class="checkbox" style="margin:0">
+                  <input id="financeTF" type="checkbox" checked />
+                  Finance Taxes &amp; Fees?
+                </label>
+              </div>
+
+              <div class="amount-row">
+                <label class="checkbox">
+                  <input id="financeNegEquity" type="checkbox" checked />
+                  Finance Negative Equity? <span id="negEquityValue" class="faint"></span>
+                </label>
+              </div>
+
+              <div class="note faint">
+                <span id="pmtSavings">—</span>
               </div>
             </div>
           </div>
 
-          <div class="cell">
-            <div class="cell-label">Cash Due at Signing</div>
+          <div class="cell" id="amountFinancedCell">
+            <div class="cell-label">AMOUNT FINANCED</div>
             <div class="cell-value">
-              <output id="cashDueAtSigning">- -</output>
-            </div>
-          </div>
-          
-          <div class="amount-row">
-            <label class="checkbox"><input id="financeTF" type="checkbox" checked /> Finance Taxes &amp; Fees?</label>
-          </div>
-
-          <div class="amount-row">
-            <label class="checkbox"><input id="financeNegEquity" type="checkbox" checked /> Finance Negative Equity? <span id="negEquityValue" class="faint"></span></label>
-          </div>
-
-          <div class="amount-row">
-            <div class="big" id="amountFinanced">- -</div>
-            <div class="note" id="amountFinancedNote"></div>
-          </div>              <div class="note faint"><span id="pmtSavings">Tax &amp; Fees Savings = —</span></div>
+              <div class="big" id="amountFinanced">- -</div>
             </div>
           </div>
 
           <div class="cell">
-            <div class="cell-label">APR / Term</div>
+            <div class="cell-label">Monthly Payment</div>
             <div class="cell-value">
-              <div class="inline-2">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; width:100%">
+                <div class="big" id="monthlyPayment">- -</div>
+                <button id="saveScenarioBtn" class="btn" type="button">Save Scenario</button>
+              </div>
+              <div class="note faint" style="margin-top:6px">APR / Term</div>
+              <div class="inline-2" style="margin-top:8px">
                 <input id="apr" type="text" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
                 <div class="input-with-suffix">
                   <input id="term" list="termOptions" inputmode="numeric" enterkeyhint="done" pattern="[0-9]*" placeholder="60" value="72" />
@@ -228,22 +243,22 @@
                 </datalist>
               </div>
               <div class="note">Monthly Rate = <span id="monthlyApr">—</span></div>
-            </div>
-          </div>
-
-          <div class="cell">
-            <div class="cell-label">Monthly Payment</div>
-            <div class="cell-value">
-              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; width:100%">
-                <div class="big" id="monthlyPayment">- -</div>
-                <button id="saveScenarioBtn" class="btn" type="button">Save Scenario</button>
-              </div>
               <div class="note faint">0% APR reference: <span id="payment0">- -</span></div>
               <div class="note">Delta vs 0%: <span id="paymentDelta">- -</span></div>
             </div>
           </div>
+
+          <div class="cell" id="goalMonthlyCell">
+            <div class="cell-label">Goal Monthly Payment (see APR / TERM below):</div>
+            <div class="cell-value">
+              <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Set Ideal Monthly Payment" size="8" />
+              <div id="goalAprTermNote" class="note" aria-live="polite"></div>
+              <div id="finalPriceForGoalRow" class="note" aria-live="polite">Required Final Sale Price — <span id="finalPriceForGoal">—</span></div>
+            </div>
+          </div>
         </form>
       </section>
+
 
       
 

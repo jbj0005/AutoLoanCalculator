@@ -285,6 +285,7 @@ input[type="checkbox"]{width:16px; height:16px}
   box-sizing: border-box;
   flex: 0 0 auto;
 }
+.goal-input{ width:auto; max-width:8ch; box-sizing:border-box; flex:0 0 auto }
 .goal-down-out{
   display: block;
   width: 100%;
@@ -308,4 +309,53 @@ input[type="checkbox"]{width:16px; height:16px}
 #cashTaxBlock #openTaxInfo{
   align-self: center;            /* ensure button is centered */
   margin-top: 6px;               /* space above button */
+}
+
+/* =============================
+   Goal helper notes (Cash Down)
+   ============================= */
+#goalWays.note {
+  margin-top: 6px;
+  padding-top: 2px;
+  font-size: 0.95rem;
+  line-height: 1.25rem;
+  color: #222;
+}
+
+#goalWays .note-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+#goalWays .note-row {
+  display: flex;
+  flex-wrap: wrap;          /* allow wrap on small screens */
+  align-items: baseline;
+  gap: 4px 6px;             /* row spacing then column spacing */
+  margin: 1px 0;
+}
+
+#goalWays .note-label {
+  font-weight: 500;
+  color: #444;
+  white-space: nowrap;      /* keep label on one line */
+}
+
+#goalWays .note-value {
+  font-weight: 600;         /* values pop slightly */
+  font-variant-numeric: tabular-nums; /* tidy number alignment */
+  min-width: 2ch;           /* keeps em dash from collapsing */
+}
+
+/* Respect overall card/container typography if present */
+.card .note#goalWays { 
+  font-size: inherit; 
+  line-height: inherit; 
+}
+
+@media (max-width: 480px) {
+  #goalWays.note { 
+    font-size: 0.92rem; 
+    line-height: 1.2rem; 
+  }
 }

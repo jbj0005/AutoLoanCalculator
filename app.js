@@ -648,7 +648,8 @@ function updateVehicleSummary(){
     }
     const tradeValue = parseCurrency(tradeEl?.value ?? "");
     const payoffRaw  = parseCurrency(payoffEl?.value ?? "");
-    const payoff     = tradeValue > 0 ? payoffRaw : 0;
+    // If user only enters Payoff (no Trade-in Value), treat it as negative equity
+    const payoff     = payoffRaw;
     const cashDown   = parseCurrency(cashDownEl?.value ?? "");
 
     // Trade equity breakdown (positive vs. negative)
@@ -816,13 +817,6 @@ if (taxSavingsEl) {
     // Current monthly with current APR
     const monthly = pmnt(amountFinanced);
 
-// Cash Down UX: show a clear prompt instead of auto-filling a value
-try {
-  const cdEl = document.getElementById("cashDown");
-  if (cdEl) {
-    cdEl.placeholder = "Enter Additional Cash Down";
-  }
-} catch {}
     // 0% APR reference (same principal & term)
     const zeroAprMonthly = n > 0 ? (amountFinanced / n) : 0;
     const financingCostPerMonth = Math.max(0, monthly - zeroAprMonthly);
@@ -881,11 +875,7 @@ try {
       const extraDown = Math.max(0, currentPrincipal - principalNeeded);
 
       if (goalDownOut) {
-        // Present a clear, unit-consistent statement about extra cash down (dollars)
-        // rather than mixing with monthly payment (dollars/month).
-        goalDownOut.textContent = extraDown > 0
-          ? `Extra Cash Down Needed — ${fmtCurrency(extraDown)}`
-          : `No extra cash down needed`;
+        goalDownOut.textContent = extraDown > 0 ? fmtCurrency(extraDown) : '—';
         goalDownOut.classList.toggle("computed", true);
       }
 
@@ -975,11 +965,11 @@ try {
         return;
       }
     } else {
-  if (goalDownOut) goalDownOut.textContent = "";
-  if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
-  const noteEl = document.getElementById("goalAprTermNote");
-  if (noteEl) { noteEl.textContent = ""; noteEl.classList.remove("computed"); }
-}
+      if (goalDownOut) goalDownOut.textContent = "";
+      if (finalPriceForGoalEl) { finalPriceForGoalEl.textContent = "—"; finalPriceForGoalEl.classList.remove("computed"); }
+      const noteEl = document.getElementById("goalAprTermNote");
+      if (noteEl) { noteEl.textContent = ""; noteEl.classList.remove("computed"); }
+    }
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));
     (document.getElementById("monthlyPayment")  ) && (document.getElementById("monthlyPayment").textContent   = fmtCurrency(monthly));
@@ -1024,20 +1014,27 @@ try {
     // Recommendation note below Amount Financed (pmtSavings)
     const pmtSavingsEl = document.getElementById("pmtSavings");
     if (pmtSavingsEl) {
-      const parts = [];
-      if (financeTF) parts.push('Taxes & Fees');
-      if (financeNegEquity && negEquity > 0) parts.push('Negative Equity');
+      const tfOn = !!financeTF;
+      const neOn = !!financeNegEquity && negEquity > 0;
 
-      if (parts.length > 0) {
-        // We are currently financing one or both items — recommend paying them cash
-        const label = parts.join(' & ');
-        pmtSavingsEl.textContent = `Pay Cash to Save ${fmtCurrency(combinedSavings)} Per Month!`;
-        pmtSavingsEl.classList.toggle('computed', true);
+      // Savings broken out by toggle
+      const items = [];
+      if (tfOn) items.push({ label: 'Taxes & Fees', savings: dontFinanceSavingsTF });
+      if (neOn) items.push({ label: 'Negative Equity', savings: dontFinanceSavingsNegEq });
+
+      if (items.length === 0) {
+        // Already paying both in cash (or no neg equity)
+        const total = dontFinanceSavingsTF + (negEquity > 0 ? dontFinanceSavingsNegEq : 0);
+        pmtSavingsEl.textContent = `Sweet! You're Saving ${fmtCurrency(total)} /month!`;
+      } else if (items.length === 1) {
+        const it = items[0];
+        pmtSavingsEl.textContent = `Pay Cash - Save ${fmtCurrency(it.savings)} /month!`;
       } else {
-        // Already paying both in cash (or no neg equity) — congratulate and show savings vs. financing them
-        pmtSavingsEl.textContent = `Great job! You're Saving ${fmtCurrency(combinedSavings)} Per Month`;
-        pmtSavingsEl.classList.toggle('computed', true);
+        const total = items.reduce((a, b) => a + (b.savings || 0), 0);
+        const breakdown = items.map(it => `${it.label} ${fmtCurrency(it.savings)}`).join(' + ');
+        pmtSavingsEl.textContent = `Pay Cash — Save ${fmtCurrency(total)} /month (${breakdown})`;
       }
+      pmtSavingsEl.classList.toggle('computed', true);
     }
 
     // Keep vehicle summary in sync with latest MSRP/name
@@ -1415,11 +1412,7 @@ function wireInputs(){
       goalInput.style.minWidth = `${ch}ch`; // prevents clipping in modern browsers
       goalInput.size = ch;                  // improves width behavior in some engines
     }
-    // Cash Down: set requested placeholder on init
-    const cashDownInput = document.getElementById("cashDown");
-    if (cashDownInput) {
-      cashDownInput.placeholder = "Enter Additional Cash Down";
-    }
+
       termDatalist.innerHTML = presets.map(p => `<option value="${p.m}" label="${p.label}"></option>`).join("");
       termInput.setAttribute("list", "termOptions");
       termInput.addEventListener("blur", () => {
@@ -1522,6 +1515,18 @@ const onFPChange = () => {
     const dealerList = document.getElementById("dealerFeesList");
     document.getElementById("addFee")?.addEventListener("click", () => { if (dealerList) { addFeeRow(dealerList); computeAll(); } });
     dealerList?.addEventListener("input", debouncedComputeAll);
+
+    // Dealer fee presets (desc only; user supplies amount)
+    const dealerSelect = document.getElementById("dealerFeePreset");
+    dealerSelect?.addEventListener("change", (e) => {
+      const opt = e.currentTarget.selectedOptions?.[0];
+      if (!opt || !dealerList) return;
+      const desc = (opt.textContent || opt.value || "").trim() || "Dealer Fee";
+      addFeeRow(dealerList, { desc }); // amount left blank for user to enter
+      e.currentTarget.selectedIndex = 0;
+      $$(".fee-desc", dealerList).slice(-1)[0]?.focus?.();
+      computeAll();
+    });
 
     // Gov fees + presets
     const govList = document.getElementById("govFeesList");
