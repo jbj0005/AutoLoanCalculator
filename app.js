@@ -726,20 +726,7 @@ if (taxSavingsEl) {
     taxSavingsEl.setAttribute("aria-live", "polite");
   }
 }
-    // Trade-in Tax Value = Trade-in Offer + Trade-in Tax Savings
-    try {
-      const taxValEl = document.getElementById('tradeTaxValue');
-      if (taxValEl) {
-        const taxVal = Math.max(0, tradeValue) + Math.max(0, taxSavings);
-        if (taxVal > 0) {
-          taxValEl.textContent = fmtCurrency(taxVal);
-          taxValEl.classList.add('computed');
-        } else {
-          taxValEl.textContent = '';
-          taxValEl.classList.remove('computed');
-        }
-      }
-    } catch {}
+    // (removed Trade-in Tax Value note and computation)
 
     // Asking vs Offer Delta = Asking - Offer (accounting format; colored text only)
     // Only display when a Trade-in Offer is provided
@@ -1042,6 +1029,23 @@ if (taxSavingsEl) {
           if (priceEl) { priceEl.innerHTML = `${congrats}${amtHTML}`; priceEl.classList.add('computed'); }
         }
       } catch {}
+      // Show single congrats note and hide strategy notes when goal is met
+      try {
+        const goalCongratsRow = document.getElementById('goalCongratsRow');
+        const delta = Math.max(0, goalMonthly - monthly);
+        if (metGoal && goalCongratsRow) {
+          goalCongratsRow.innerHTML = `Congrats! You\'ve Met Your Affordability Goal by <span class="delta-pos text-only">${fmtCurrency(delta)}</span>`;
+          goalCongratsRow.style.display = '';
+          goalCongratsRow.setAttribute('aria-hidden','false');
+          [goalDownRow, goalAprRow, goalPriceRow].forEach(row => {
+            if (!row) return;
+            try { row.style.display = 'none'; row.setAttribute('aria-hidden','true'); } catch {}
+          });
+        } else if (goalCongratsRow) {
+          goalCongratsRow.style.display = 'none';
+          goalCongratsRow.setAttribute('aria-hidden','true');
+        }
+      } catch {}
       if (autoApplyGoal && !state._applyingGoalDown) {
         state._applyingGoalDown = true;
         const newDown = Math.max(0, cashDown + extraDown);
@@ -1060,6 +1064,10 @@ if (taxSavingsEl) {
         if (!row) return;
         try { row.style.display = 'none'; row.setAttribute('aria-hidden','true'); row.classList.remove('warn','computed'); } catch {}
       });
+      try {
+        const c = document.getElementById('goalCongratsRow');
+        if (c) { c.style.display='none'; c.setAttribute('aria-hidden','true'); }
+      } catch {}
     }
     // ---------- Outputs ----------
     (document.getElementById("amountFinanced")  ) && (document.getElementById("amountFinanced").textContent   = fmtCurrency(amountFinanced));

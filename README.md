@@ -1,4 +1,4 @@
-# Auto Loan Calculator (GitHub Pages) — v0.2.2
+# Auto Loan Calculator (GitHub Pages) — v0.4.0
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 
@@ -6,7 +6,19 @@ Mobile-friendly auto loan calculator with an optional Supabase-backed vehicle li
 
 Live-ready for GitHub Pages: static HTML/CSS/JS only.
 
-## Features (v0.2.0)
+## Highlights (v0.4.0)
+
+- New “MONTHLY AFFORDABILITY” cell with goal monthly input and dynamic notes
+- Congratulatory message when goal is met; hides strategy notes
+- APR and TERM controls merged into Monthly Payment cell with aligned labels
+- Inline savings shown next to “Finance Taxes & Fees?” and “Finance Negative Equity?”
+- Trade-in UI: “Trade-in Offer” label, optional “Trade-in Asking Price”, and “Asking vs. Offer Delta” (color-only accounting style)
+- Dealer Fee presets (desc only) and responsive fee rows
+- Inputs are flex-resizable; placeholders standardized to “Enter Amount”
+- Enter/Return advances to next field; mobile keyboards show Done/Next
+- Removed “Trade-in Tax Value” note
+
+## Features
 
 - Excel-style 8-column paired layout (labels + values)
 - Savings vs. MSRP, trade-in equity (positive/negative)
@@ -110,8 +122,8 @@ See full history in `CHANGELOG.md`.
 ## Calculation Details
 
 - Savings: `MSRP - Final Sale Price` (shown when positive).
-- Trade Equity: `Trade-in Value - Loan Payoff` (negative = negative equity).
-- Taxes (Florida): `6% * taxableBase + countyRate * min(taxableBase, $5,000)` where `taxableBase = max(Final Price - Trade-in Value, 0)`.
+- Trade Equity: `Trade-in Offer - Loan Payoff` (negative = negative equity).
+- Taxes (Florida): `6% * taxableBase + countyRate * min(taxableBase, $5,000)` where `taxableBase = max(Final Price - Trade-in Offer, 0)`.
 - Amount Financed:
 
 ```

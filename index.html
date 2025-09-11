@@ -22,7 +22,7 @@
       <h1>Brandon's Auto Loan Calculator</h1>
       <div class="header-pills">
         <div id="supabase-status" class="status warn">Supabase not configured</div>
-        <div id="version" class="pill version">V0.3.0</div>
+        <div id="version" class="pill version">V0.4.0</div>
       </div>
     </header>
 
@@ -85,7 +85,6 @@
                 <output id="tradeEquity">- -</output>
                 <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Enter a Trade-in Offer to see your Tax Savings</div>
               </div>
-              <div class="note">Trade-in Tax Value: <span id="tradeTaxValue"></span></div>
               <div class="note" id="tradeAskPriceRow">Trade-in Asking Price: <input id="tradeAskPrice" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="12" /></div>
               <div class="note">Asking vs. Offer Delta: <span id="tradeAskOfferDelta"></span></div>
             </div>
@@ -255,6 +254,7 @@
             <div class="cell-label">MONTHLY AFFORDABILITY</div>
             <div class="cell-value">
               <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="8" />
+              <div class="note" id="goalCongratsRow" aria-live="polite" style="display:none" aria-hidden="true"></div>
               <div class="note">Additional Cash Down: <span id="goalDownNeeded">—</span></div>
               <div class="note wrap-note">Negotiate APR/TERM: <span id="goalAprTermNote">—</span></div>
               <div class="note">Negotiate Sale Price: <span id="finalPriceForGoal">—</span></div>
