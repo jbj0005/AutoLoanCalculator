@@ -738,16 +738,16 @@ if (taxSavingsEl) {
     // (removed Trade-in Tax Value note and computation)
 
     // Asking vs Offer Delta = Asking - Offer (accounting format; colored text only)
-    // Only display when a Trade-in Offer is provided
+    // Only display when a Trade-in Asking Price is provided by the user
     try {
       const deltaEl = document.getElementById('tradeAskOfferDelta');
       const deltaRow = deltaEl?.closest('.note') || null;
       if (deltaEl) {
-        const hasOffer = Number.isFinite(tradeValue) && tradeValue > 0;
-        if (hasOffer) {
-          // Use loanPayoff as the effective Asking Price if user hasn't entered one
-          const askEff = (tradeAskPrice > 0) ? tradeAskPrice : payoffRaw;
-          const delta = (askEff || 0) - (tradeValue || 0);
+        const hasAsk = Number.isFinite(tradeAskPrice) && tradeAskPrice > 0;
+        if (hasAsk) {
+          // Display requires explicit Asking Price entry
+          const askEff = tradeAskPrice;
+          const delta = (askEff) - (tradeValue || 0);
           deltaEl.textContent = formatAccounting(delta);
           deltaEl.classList.remove('delta-pos','delta-neg','text-only');
           // Flip accounting colors: Negative (offer > asking) shown as positive/green
