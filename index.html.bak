@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Loan Calculator</title>
+  <link rel="icon" type="image/png" href="favicon.png" />
+  <link rel="apple-touch-icon" href="favicon.png" />
+  <link rel="stylesheet" href="styles.css" />
+
+  <!-- Supabase: use UMD so window.supabase is defined -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+
+  <!-- Your keys/config must load before app.js -->
+  <script defer src="config.js"></script>
+  <!-- App constants (defaults & limits) -->
+  <script defer src="vars.js"></script>
+
+  <!-- App (defer so it runs after the above scripts are parsed) -->
+  <script defer src="app.js"></script>
+</head>
+ <body>
+    <header class="app-header">
+      <h1>Brandon's Auto Loan Calculator</h1>
+      <div class="header-pills">
+        <div id="supabase-status" class="status warn">Supabase not configured</div>
+        <div id="version" class="pill version">V0.4.1</div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="panel" id="db-panel">
+        <div class="panel-header">
+          <h2>Vehicle Database</h2>
+        </div>
+        <div class="db-row vehicles-row">
+          <div class="row-actions">
+            <select id="vehicleSelect">
+              <option value="">Select Vehicle</option>
+            </select>
+          </div>
+        </div>
+        <div class="db-actions">
+          <button id="addVehicleBtn" class="btn">Add</button>
+          <button id="updateVehicleBtn" class="btn">Update</button>
+          <button id="deleteVehicle" class="btn" title="Delete selected vehicle">Delete</button>
+        </div>
+        
+      </section>
+
+      <!-- Current Vehicle Summary -->
+      <section class="summary cell-label" id="vehicleSummary">        <div class="item"><span class="label">Vehicle:</span> <span class="value" id="summaryVehicle">—</span></div>
+        <div class="item"><span class="label">MSRP / Asking Price:</span> <span class="value" id="summaryMsrp">—</span></div>
+      </section>
+
+      <section class="panel" id="calc-panel">
+        <div class="panel-header">
+          <h2>Calculator</h2>
+          <div id="calcMessages" class="messages"></div>
+          <button id="loadScenarioBtn" class="btn small" title="Load Scenario" style="margin-right:8px;">Load Scenario</button>
+          <button id="clearCalc" class="btn small" title="Clear all inputs">Clear</button>
+        </div>
+        <form id="calcForm" action="#" class="stack" autocomplete="on">
+         <div class="cell">
+            <div class="cell-label">Final Sale Price</div>
+            <div class="cell-value">
+              <input id="finalPrice" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+              <div id="savings" class="note"></div>
+              <div class="hint">Supports formulas: e.g. <code>(MSRP - $7,500)</code></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Trade-in</div>
+            <div class="cell-value">
+              <div class="trade-grid">
+                <div class="t-label">Trade-in Offer:</div>
+                <div class="op">−</div>
+                <div class="t-label">Trade-in Payoff</div>
+                <div class="op">=</div>
+                <div class="t-label">Trade Equity</div>
+
+                <input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+                <div class="op">−</div>
+                <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+                <div class="op">=</div>
+                <output id="tradeEquity">- -</output>
+                <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Enter a Trade-in Offer to see your Tax Savings</div>
+              </div>
+              <div class="note" id="tradeAskPriceRow">Trade-in Asking Price: <input id="tradeAskPrice" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="12" /></div>
+              <div class="note">Asking vs. Offer Delta: <span id="tradeAskOfferDelta"></span></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-value">
+            <div class="summary cell-label compact" id="cashTaxBlock">
+              <div class="item"><span class="label">Cash Difference:</span> <span class="value" id="cashDifferenceOut">- -</span></div>
+              <div class="item"><span class="label">Taxable Base:</span> <span class="value" id="taxableBaseOut">- -</span></div>
+
+              <!-- replace the old note with this button -->
+              <button id="openTaxInfo" class="link-btn small" type="button" style="margin-top:6px">
+                What is “Taxable Base”?
+              </button>
+            </div>            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Dealer Fees</div>
+            <div class="cell-value">
+              <div id="dealerFeesList" class="fees-list"></div>
+              <div class="fees-actions">
+                <select id="dealerFeePreset" class="preset-select small">
+                  <option value="">Presets…</option>
+                  <option value="Doc Fee">Doc Fee</option>
+                  <option value="Service &amp; Handling">Service &amp; Handling</option>
+                  <option value="Used Tire / Battery">Used Tire / Battery</option>
+                  <option value="Delivery">Delivery</option>
+                  <option value="Electronic Filing">Electronic Filing</option>
+                  <option value="Extended Warranty">Extended Warranty</option>
+                  <option value="Tire Protection">Tire Protection</option>
+                </select>
+                <button id="addFee" type="button" class="btn small">Add Fee</button>
+                <span class="spacer"></span>
+                <span>      <strong id="dealerFeesTotal">$0.00</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Gov't Fees</div>
+            <div class="cell-value">
+              <div id="govFeesList" class="fees-list"></div>
+              <div class="fees-actions">
+                <select id="govFeePreset" class="preset-select small">
+                  <option value="">Presets…</option>
+                  <optgroup label="Registration &amp; Plate Fees">
+                    <option data-name="Car &lt; 2,500 lbs" value="14.50">Car &lt; 2,500 lbs — $14.50</option>
+                    <option data-name="2,500 &gt; Car &lt; 3,499 lbs" value="22.50">2,500 &gt; Car &lt; 3,499 lbs — $22.50</option>
+                    <option data-name="Car &gt; 3,500 lbs" value="32.50">Car &gt; 3,500 lbs — $32.50</option>
+                    <option data-name="Truck &lt; 5,000 lbs" value="32.50">Truck &lt; 5,000 lbs — $32.50</option>
+                    <option data-name="5,001 &gt; Truck &lt; 7,999 lbs" value="60.75">5,001 &gt; Truck &lt; 7,999 lbs — $60.75</option>
+                    <option data-name="Truck &gt; 8,000 lbs" value="86.00">Truck &gt; 8,000 lbs — $86.00</option>
+                  </optgroup>
+                  <optgroup label="Registration">
+                    <option data-name="Exempt (Weight &gt; 5k lbs)" value="0">Exempt (Weight &gt; 5k lbs) — $0.00</option>
+                    <option data-name="Initial Registration" value="225.00">Initial Registration — $225.00</option>
+                  </optgroup>
+                  <optgroup label="Tag Fees">
+                    <option data-name="Tag Transfer" value="10.00">Tag Transfer — $10.00</option>
+                    <option data-name="1-Yr Tag" value="28.00">1-Yr Tag — $28.00</option>
+                    <option data-name="2-Yr Tag" value="56.00">2-Yr Tag — $56.00</option>
+                  </optgroup>
+                  <optgroup label="Title Fees">
+                    <option data-name="Electronic Title" value="85.75">Electronic Title — $85.75</option>
+                    <option data-name="Paper Title" value="77.75">Paper Title — $77.75</option>
+                  </optgroup>
+                </select>
+                <button id="addGovFee" type="button" class="btn small">Add Fee</button>
+                <span class="spacer"></span>
+                <span>      <strong id="govFeesTotal">$0.00</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label with-action">Taxes (FL)
+            </div>
+            <div class="cell-value">
+              <output id="taxes">- -</output>
+              <div class="note" id="taxesRatesNote">County Tax Rate = - - (Default)</div>
+              <div class="note"><span id="taxesBreakdown">State Tax — | County Tax —</span></div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Total Taxes &amp; Fees</div>
+            <div class="cell-value">
+              <output id="totalTF">- -</output>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Additional Cash Down</div>
+            <div class="cell-value">
+              <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+            </div>
+          </div>
+
+          
+
+          <div class="cell" id="cashDueCell">
+            <div class="cell-label with-action">CASH DUE AT SIGNING
+              <span id="cashDueAtSigning" class="big">- -</span>
+            </div>
+            <div class="cell-value">
+
+              <div class="amount-row">
+                <label class="checkbox" style="margin:0">
+                  <input id="financeTF" type="checkbox" checked />
+                  Finance Taxes &amp; Fees?
+                </label>
+                <span id="pmtSavingsTF" class="note faint" aria-live="polite"></span>
+              </div>
+
+              <div class="amount-row">
+                <label class="checkbox">
+                  <input id="financeNegEquity" type="checkbox" checked />
+                  Finance Negative Equity?
+                </label>
+                <span id="pmtSavingsNegEq" class="note faint" aria-live="polite"></span>
+              </div>
+
+            </div>
+          </div>
+
+          <div class="cell" id="amountFinancedCell">
+            <div class="cell-label">AMOUNT FINANCED</div>
+            <div class="cell-value">
+              <div class="big" id="amountFinanced">- -</div>
+            </div>
+          </div>
+
+          <div class="cell">
+            <div class="cell-label">Monthly Payment</div>
+            <div class="cell-value">
+              <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:12px; width:100%">
+                <div class="big" id="monthlyPayment">- -</div>
+                <button id="saveScenarioBtn" class="btn" type="button">Save Scenario</button>
+              </div>
+              <div class="inline-2" style="margin-top:8px">
+                <div>
+                  <div class="note faint">APR</div>
+                  <input id="apr" type="text" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
+                </div>
+                <div>
+                  <div class="note faint">TERM</div>
+                  <input id="term" list="termOptions" inputmode="numeric" enterkeyhint="done" pattern="[0-9]*" placeholder="60" value="72" />
+                  <datalist id="termOptions">
+                    <option value="36"></option>
+                    <option value="42"></option>
+                    <option value="48"></option>
+                    <option value="60"></option>
+                    <option value="72"></option>
+                    <option value="84"></option>
+                  </datalist>
+                </div>
+              </div>
+              <div class="note">Monthly Rate = <span id="monthlyApr">—</span></div>
+              <div class="note faint">0% APR reference: <span id="payment0">- -</span></div>
+              <div class="note">Delta vs 0%: <span id="paymentDelta">- -</span></div>
+            </div>
+          </div>
+
+          <div class="cell" id="goalMonthlyCell">
+            <div class="cell-label">MONTHLY AFFORDABILITY</div>
+            <div class="cell-value">
+              <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="8" />
+              <div class="note" id="goalCongratsRow" aria-live="polite" style="display:none" aria-hidden="true"></div>
+              <div class="note">Additional Cash Down: <span id="goalDownNeeded">—</span></div>
+              <div class="note wrap-note">Negotiate APR/TERM: <span id="goalAprTermNote">—</span></div>
+              <div class="note">Negotiate Sale Price: <span id="finalPriceForGoal">—</span></div>
+            </div>
+          </div>
+        </form>
+      </section>
+
+
+      
+
+      
+    </main>
+
+    <!-- Vehicle Modal -->
+    <div id="vehicleModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="vehicleModalTitle">
+        <div class="modal-header">
+          <h3 id="vehicleModalTitle">Vehicle</h3>
+          <button id="modalClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+            <div class="db-row">
+              <label for="dbVehicleName">Name</label>
+              <input id="dbVehicleName" type="text" placeholder="e.g. 2025 Ram 1500 Limited" />
+            </div>
+            <div class="db-row">
+              <label for="dbMsrp">MSRP / Asking Price</label>
+              <input id="dbMsrp" type="text" inputmode="decimal" placeholder="Enter Amount" />
+            </div>
+          
+        </div>
+        <div class="modal-footer">
+          <button id="saveVehicle" class="btn primary">Save</button>
+          <button id="modalCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    
+
+    <!-- County Rates Modal -->
+    <div id="ratesModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="ratesModalTitle">
+        <div class="modal-header">
+          <h3 id="ratesModalTitle">Import County Rates</h3>
+          <button id="ratesClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row">
+            <label for="stateRateInput">State Rate</label>
+            <input id="stateRateInput" type="text" inputmode="decimal" placeholder="0.06" />
+          </div>
+          <div class="db-row">
+            <label for="countyCapInput">County Cap ($)</label>
+            <input id="countyCapInput" type="text" inputmode="numeric" placeholder="5000" />
+          </div>
+          <div class="db-row">
+            <label for="ratesFile">Upload File</label>
+            <input id="ratesFile" type="file" accept=".xlsx,.xls,.csv,.tsv,.txt" />
+          </div>
+          <div class="hint">Paste either JSON or copy-paste from Excel/CSV/TSV (must include County and Rate columns). Headers like "County", "Rate", or "Surtax" are detected automatically.</div>
+          <textarea id="ratesInput" rows="12" style="width:100%; background:#0f1319; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px" placeholder='County	Rate%
+Brevard	1.5%
+Orange	0.5%'></textarea>
+          <div class="rates-preview">
+            <div class="hint">Preview (first 15 rows)</div>
+            <div id="ratesPreview"></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="loadRatesSample" class="btn">Load Sample</button>
+          <button id="saveRates" class="btn primary">Save Rates</button>
+          <button id="ratesCancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tax Formula Modal -->
+    <div id="formulaModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="formulaModalTitle">
+        <div class="modal-header">
+          <h3 id="formulaModalTitle">Tax Calculation Formula</h3>
+          <button id="formulaClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row" style="display:block">
+            <div class="note wrap-note" id="formulaRatesLine">—</div>
+            <div class="note wrap-note">State tax = stateRate × taxableBase</div>
+            <div class="note wrap-note">County surtax = countyRate × min(taxableBase, $5,000)</div>
+            <div class="note wrap-note">Taxable base = max(Final Sale Price − Trade-in, 0) + Dealer Fees</div>
+            <div class="hint wrap-note">Government/DMV fees are not taxable. County surtax applies only to the first $5,000.</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="formulaCancel" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Taxable Base Info Modal -->
+    <div id="taxInfoModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="taxInfoModalTitle">
+        <div class="modal-header">
+          <h3 id="taxInfoModalTitle">What is the Taxable Base?</h3>
+          <button id="taxInfoClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="db-row" style="display:block">
+            <div class="note wrap-note">Taxable Base is the amount your sales tax is calculated on.</div>
+            <div class="note wrap-note">
+              In Florida: <strong>Taxable Base = max(Final Sale Price − Trade-in Offer, 0) + Dealer Fees</strong> (for dealer fees that are taxable).
+            </div>
+            <div class="hint wrap-note">
+              Government/DMV fees like title, tag, lien are not taxable. County surtax (if any) applies only to the first $5,000 of the taxable base.
+            </div>
+            <div class="note wrap-note">
+              Reference:
+              <a href="https://floridarevenue.com/Forms_library/current/brochure/gt800030.pdf" target="_blank" rel="noopener">
+                Florida Department of Revenue – Motor Vehicle Sales/Use Tax
+              </a>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="taxInfoCancel" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Save Scenario Modal -->
+    <div id="saveScenarioModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="saveScenarioTitle">
+        <div class="modal-header">
+          <h3 id="saveScenarioTitle">Save Scenario</h3>
+          <button id="saveScenarioClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-row">
+            <label class="t-label" for="scenarioTitle">Title</label>
+            <input id="scenarioTitle" type="text" placeholder="Scenario title" />
+          </div>
+          <div class="form-row">
+            <label class="t-label" for="scenarioNotes">Notes</label>
+            <textarea id="scenarioNotes" rows="4" placeholder="Add any notes about this scenario..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="saveScenarioCancel" class="btn">Cancel</button>
+          <button id="saveScenarioConfirm" class="btn primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Load Scenario Modal -->
+    <div id="loadScenarioModal" class="modal" aria-hidden="true">
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="loadScenarioTitle">
+        <div class="modal-header">
+          <h3 id="loadScenarioTitle">Load Scenario</h3>
+          <button id="loadScenarioClose" class="btn small" aria-label="Close">Close</button>
+        </div>
+        <div class="modal-body">
+          <div id="scenarioList" class="list"></div>
+          <div class="note faint" style="margin-top:8px">Scenarios are stored in Supabase.</div>
+        </div>
+        <div class="modal-footer">
+          <button id="loadScenarioCancel" class="btn">Close</button>
+        </div>
+      </div>
+    </div>
+  </body>
+  </html>

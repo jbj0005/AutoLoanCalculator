@@ -38,7 +38,7 @@
   function setSupabaseStatus(ready){
     const el = document.getElementById("supabase-status");
     if (!el) return;
-    el.textContent = ready ? "Supabase: connected" : "Supabase: offline (local)";
+    el.textContent = ready ? "Connected" : "Offline (local)";
     el.classList.toggle("ok", ready);
     el.classList.toggle("warn", !ready);
   }
@@ -49,12 +49,14 @@
 
     // Detailed diagnostics to surface common setup mistakes
     const reasons = [];
-    if (!window.supabase?.createClient) reasons.push("supabase-js not loaded (check CDN/script order)");
+    const hasClient  = !!(window.supabase && typeof window.supabase.from === 'function');
+    const hasFactory = !!(window.supabase && typeof window.supabase.createClient === 'function');
+    if (!hasClient && !hasFactory) reasons.push("supabase-js not loaded (check CDN/script order)");
     if (!url) reasons.push("window.SUPABASE_URL missing (check config.js)");
     if (!key) reasons.push("window.SUPABASE_ANON_KEY missing (check config.js; use anon/publishable key, not service role)");
 
     const sb = (!reasons.length)
-      ? window.supabase.createClient(url, key)
+      ? (hasClient ? window.supabase : window.supabase.createClient(url, key))
       : null;
 
     if (!sb) {
@@ -309,7 +311,10 @@ function parsePriceExpression(raw, msrp = 0) {
   ========================= */
   const scheduleSave = (typeof window.scheduleSave === "function") ? window.scheduleSave : () => {};
   const geocode      = (typeof window.geocode === "function")      ? window.geocode      : async (addr) => ({ lat: NaN, lon: NaN, address: addr });
-  const getCountyRate= (typeof window.getCountyRate === "function") ? window.getCountyRate: (countyName) => ({ rate: 0, defaulted: true, county: countyName || "DEFAULT" });
+  function getCountyRate(countyName){
+    if (typeof window.getCountyRate === "function") return window.getCountyRate(countyName);
+    return { rate: 0, defaulted: true, county: countyName || "DEFAULT" };
+  }
 
   /* =========================
      Toast
@@ -448,7 +453,7 @@ function parsePriceExpression(raw, msrp = 0) {
     const amt  = preset?.amount ?? "";
     row.innerHTML = `
       <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" enterkeyhint="next" value="${desc}" />
-      <input class="fee-amount" type="text" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" enterkeyhint="next" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
+      <input class="fee-amount" type="number" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" enterkeyhint="next" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
       <button type="button" class="fee-remove" aria-label="Remove fee">✕</button>
     `;
     targetList.appendChild(row);
@@ -555,25 +560,6 @@ function parsePriceExpression(raw, msrp = 0) {
     n = Number(state.selectedVehicle?.msrp);
     return Number.isFinite(n) && n > 0 ? n : 0;
   }
-
-  /* =========================
-     Vehicle summary output
-  ========================= */
-
-function updateVehicleSummary(){
-  const wrap = document.getElementById("vehicleSummary");
-  const nameEl = document.getElementById("summaryVehicle");
-  const msrpEl = document.getElementById("summaryMsrp");
-  if (!wrap) return;
-  const v = state.selectedVehicle || {};
-  const hasName = !!(v.name && v.name.trim());
-  const hasMsrp = Number.isFinite(v.msrp) && v.msrp > 0;
-
-  if (nameEl) nameEl.textContent = hasName ? v.name.trim() : "—";
-  if (msrpEl) msrpEl.textContent = hasMsrp ? fmtCurrency(v.msrp) : "—";
-
-  wrap.classList.toggle("computed", !!(hasName || hasMsrp));
-}
 
   /* =========================
      Trade equity output
@@ -1901,6 +1887,7 @@ const onFPChange = () => {
     try { initDataLayer(); } catch {}
     try { wireInputs(); } catch {}
     try { ensureEnterKeyHints(); } catch {}
+    try { await initTaxSelectors(); } catch {}
     try {
       const form = document.getElementById('calcForm');
       form?.addEventListener('submit', (e)=>{
@@ -1914,6 +1901,93 @@ const onFPChange = () => {
     try { await loadVehiclesAndRender(); } catch {}
     computeAll();
   });
+
+  // ============== State/County selectors (Taxes) ==============
+  async function initTaxSelectors(){
+    const stSel = document.getElementById('taxStateSelect');
+    const coSel = document.getElementById('taxCountySelect');
+    const label = document.getElementById('taxesLabel');
+    if (!stSel || !coSel) return;
+
+    const sb = window.supabase;
+    async function listStates(){
+      let rows = [];
+      try {
+        const { data } = await sb.from('states').select('code,name').order('name');
+        if (Array.isArray(data)) rows = data;
+      } catch {}
+      if (!rows.length) {
+        try {
+          const { data } = await sb.from('county_surtax_windows').select('state_code');
+          const seen = new Set();
+          rows = (data||[]).map(r=>r.state_code).filter(Boolean).filter(c=>!seen.has(c) && seen.add(c)).map(code=>({ code, name: code }));
+        } catch {}
+      }
+      return rows;
+    }
+
+    async function listCounties(code){
+      let rows = [];
+      try {
+        const { data } = await sb.from('counties').select('county_name').eq('state_code', code).order('county_name');
+        if (Array.isArray(data)) rows = data.map(r=>r.county_name);
+      } catch {}
+      if (!rows.length) {
+        try {
+          const { data } = await sb.from('county_surtax_windows').select('county_name').eq('state_code', code);
+          const seen = new Set();
+          rows = (data||[]).map(r=>r.county_name).filter(Boolean).filter(c=>!seen.has(c) && seen.add(c)).sort((a,b)=>a.localeCompare(b));
+        } catch {}
+      }
+      return rows;
+    }
+
+    function setLabel(code){
+      if (label) label.textContent = code ? `Taxes (${code})` : 'Taxes';
+    }
+
+    async function applySelection(){
+      const stateCode = stSel.value;
+      const countyName = coSel.value;
+      if (!stateCode || !countyName) return;
+      try{
+        const t = await window.fetchActiveTaxes({ countyName, stateNameOrCode: stateCode });
+        window.state = window.state || {};
+        window.state.countyRates = { meta: { stateRate: Number(t.stateRate||0), countyCap: Number(t.countyCap||0) } };
+        // Return the current selected county's rate (dynamic wrapper)
+        window.getCountyRate = (name) => ({ rate: Number(t.countyRate||0), defaulted: false, county: name || countyName });
+        window.state.dbLocationGeo = { county: `${countyName}, ${stateCode}` };
+        setLabel(stateCode);
+        computeAll();
+        showCalcMessage(`Using ${countyName}, ${stateCode} rates from Supabase`, 'ok');
+      } catch(e){
+        console.error('applySelection failed', e);
+        showCalcMessage('Failed to load tax rates', 'err');
+      }
+    }
+
+    async function onStateChange(){
+      const code = stSel.value;
+      setLabel(code);
+      coSel.innerHTML = '<option value="">Select</option>';
+      coSel.disabled = !code;
+      if (!code) return;
+      const counties = await listCounties(code);
+      coSel.innerHTML = '<option value="">Select</option>' + counties.map(c=>`<option value="${c}">${c}</option>`).join('');
+      // Auto-select first county for convenience
+      if (counties.length) { coSel.value = counties[0]; await applySelection(); }
+    }
+
+    stSel.addEventListener('change', onStateChange);
+    coSel.addEventListener('change', applySelection);
+
+    // Initial load
+    const states = await listStates();
+    stSel.innerHTML = '<option value="">Select</option>' + states.map(s=>`<option value="${s.code}">${s.code} — ${s.name||s.code}</option>`).join('');
+    // Default to FL if present
+    const def = states.find(s=>s.code === 'FL');
+    if (def) { stSel.value = 'FL'; await onStateChange(); }
+  }
 
   // Public API (optional)
   window.AutoLoan = Object.assign(window.AutoLoan || {}, {

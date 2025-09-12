@@ -1,6 +1,6 @@
 // Supabase project credentials (public anon key; RLS must be enabled)
 window.SUPABASE_URL = "https://txndueuqljeujlccngbj.supabase.co";
-window.SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR4bmR1ZXVxbGpldWpsY2NuZ2JqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTcwMzI3OTMsImV4cCI6MjA3MjYwODc5M30.ozHVMxQ0qL4mzZ2q2cRkYPduBk927_a7ffd3tOI6Pdc";
+window.SUPABASE_ANON_KEY = "sb_publishable_iq_fkrkjHODeoaBOa3vvEA_p9Y3Yz8X";
 // App version (shown in header)
 // config.js
 window.APP_VERSION = 'V0.4.1';
@@ -38,9 +38,10 @@ window.GEOCODE_ON_INPUT = true;
       return finishWithEmptyApi();
     }
 
-    // 2) Create client once
+    // 2) Create client once (handle UMD namespace vs client)
     try {
-      if (!window.supabase) {
+      const hasClient = !!(window.supabase && typeof window.supabase.from === 'function');
+      if (!hasClient) {
         window.supabase = supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
       }
     } catch (e) {
@@ -48,7 +49,7 @@ window.GEOCODE_ON_INPUT = true;
       return finishWithEmptyApi();
     }
 
-    if (!window.supabase) {
+    if (!window.supabase || typeof window.supabase.from !== 'function') {
       if ((Date.now() - start) < MAX_MS) return setTimeout(tryBoot, STEP);
       console.error('[supabase] Not configured — unable to create client');
       return finishWithEmptyApi();

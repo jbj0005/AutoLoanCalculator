@@ -42,7 +42,7 @@ body{
   border-radius: 10px;
   padding: 14px;
   margin: 0 auto 16px auto; /* center panels */
-  max-width: 380px; /* narrow card by default */
+  max-width: 390px; /* narrow card by default */
 }
 /* Vehicle card inherits dynamic width from JS */
 #db-panel{ width: 100% }
@@ -312,7 +312,7 @@ input[type="checkbox"]{width:16px; height:16px}
   word-break: break-word;
 }
 /* NOTE: JavaScript was removed from this CSS file because CSS parsers do not accept JS or '//' comments;
-   move the following script into a separate JS file (for example: /Users/brandon/Documents/AutoLoan/govfees.js)
+   move the following script into a separate JS file (for example: govfees.js)
    and include it via a <script src="govfees.js"></script> in your HTML. */
 
 /* Cash Difference / Taxable Base block layout */

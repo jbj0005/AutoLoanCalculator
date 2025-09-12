@@ -15,6 +15,10 @@
   <script defer src="config.js"></script>
   <!-- App constants (defaults & limits) -->
   <script defer src="vars.js"></script>
+  <!-- Tax data loader (preloads Supabase tax_rates and exposes getCountyRate) -->
+  <script defer src="js/tax-data.js"></script>
+  <!-- Optional geocoding + Supabase RPC bridge for live taxes -->
+  <script defer src="js/location-hooks.js"></script>
 
   <!-- App (defer so it runs after the above scripts are parsed) -->
   <script defer src="app.js"></script>
@@ -48,11 +52,6 @@
         
       </section>
 
-      <!-- Current Vehicle Summary -->
-      <section class="summary cell-label" id="vehicleSummary">        <div class="item"><span class="label">Vehicle:</span> <span class="value" id="summaryVehicle">—</span></div>
-        <div class="item"><span class="label">MSRP / Asking Price:</span> <span class="value" id="summaryMsrp">—</span></div>
-      </section>
-
       <section class="panel" id="calc-panel">
         <div class="panel-header">
           <h2>Calculator</h2>
@@ -64,7 +63,7 @@
          <div class="cell">
             <div class="cell-label">Final Sale Price</div>
             <div class="cell-value">
-              <input id="finalPrice" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+              <input id="finalPrice" type="number" inputmode="numeric" enterkeyhint="done" placeholder="Enter Amount" />
               <div id="savings" class="note"></div>
               <div class="hint">Supports formulas: e.g. <code>(MSRP - $7,500)</code></div>
             </div>
@@ -80,14 +79,14 @@
                 <div class="op">=</div>
                 <div class="t-label">Trade Equity</div>
 
-                <input id="tradeValue" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+                <input id="tradeValue" type="number" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
                 <div class="op">−</div>
-                <input id="loanPayoff" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+                <input id="loanPayoff" type="number" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
                 <div class="op">=</div>
                 <output id="tradeEquity">- -</output>
                 <div class="note" id="tradeSavingsWith" style="grid-column: 1 / 2; margin-top: 4px;">Enter a Trade-in Offer to see your Tax Savings</div>
               </div>
-              <div class="note" id="tradeAskPriceRow">Trade-in Asking Price: <input id="tradeAskPrice" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="12" /></div>
+              <div class="note" id="tradeAskPriceRow">Trade-in Asking Price: <input id="tradeAskPrice" class="goal-input" type="number" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="12" /></div>
               <div class="note">Asking vs. Offer Delta: <span id="tradeAskOfferDelta"></span></div>
             </div>
           </div>
@@ -164,10 +163,23 @@
           </div>
 
           <div class="cell">
-            <div class="cell-label with-action">Taxes (FL)
-            </div>
+            <div class="cell-label with-action" id="taxesLabel">SALES TAX</div>
             <div class="cell-value">
               <output id="taxes">- -</output>
+              <div class="inline-2" style="margin-top:8px; align-items:flex-end">
+                <div>
+                  <div class="note faint">State</div>
+                  <select id="taxStateSelect" class="small" style="min-width:8ch">
+                    <option value="">Select</option>
+                  </select>
+                </div>
+                <div>
+                  <div class="note faint">County</div>
+                  <select id="taxCountySelect" class="small" style="min-width:18ch" disabled>
+                    <option value="">Select</option>
+                  </select>
+                </div>
+              </div>
               <div class="note" id="taxesRatesNote">County Tax Rate = - - (Default)</div>
               <div class="note"><span id="taxesBreakdown">State Tax — | County Tax —</span></div>
             </div>
@@ -183,7 +195,7 @@
           <div class="cell">
             <div class="cell-label">Additional Cash Down</div>
             <div class="cell-value">
-              <input id="cashDown" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
+              <input id="cashDown" type="number" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" />
             </div>
           </div>
 
@@ -231,7 +243,7 @@
               <div class="inline-2" style="margin-top:8px">
                 <div>
                   <div class="note faint">APR</div>
-                  <input id="apr" type="text" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
+                  <input id="apr" type="number" inputmode="decimal" enterkeyhint="done" placeholder="APR e.g., 7.49" value="6.50" />
                 </div>
                 <div>
                   <div class="note faint">TERM</div>
@@ -255,7 +267,7 @@
           <div class="cell" id="goalMonthlyCell">
             <div class="cell-label">MONTHLY AFFORDABILITY</div>
             <div class="cell-value">
-              <input id="goalMonthly" class="goal-input" type="text" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="8" />
+              <input id="goalMonthly" class="goal-input" type="number" inputmode="decimal" enterkeyhint="done" placeholder="Enter Amount" size="8" />
               <div class="note" id="goalCongratsRow" aria-live="polite" style="display:none" aria-hidden="true"></div>
               <div class="note">Additional Cash Down: <span id="goalDownNeeded">—</span></div>
               <div class="note wrap-note">Negotiate APR/TERM: <span id="goalAprTermNote">—</span></div>
@@ -285,7 +297,7 @@
             </div>
             <div class="db-row">
               <label for="dbMsrp">MSRP / Asking Price</label>
-              <input id="dbMsrp" type="text" inputmode="decimal" placeholder="Enter Amount" />
+              <input id="dbMsrp" type="number" inputmode="decimal" placeholder="Enter Amount" />
             </div>
           
         </div>
@@ -308,11 +320,11 @@
         <div class="modal-body">
           <div class="db-row">
             <label for="stateRateInput">State Rate</label>
-            <input id="stateRateInput" type="text" inputmode="decimal" placeholder="0.06" />
+            <input id="stateRateInput" type="number" inputmode="decimal" placeholder="0.06" />
           </div>
           <div class="db-row">
             <label for="countyCapInput">County Cap ($)</label>
-            <input id="countyCapInput" type="text" inputmode="numeric" placeholder="5000" />
+            <input id="countyCapInput" type="number" inputmode="numeric" placeholder="5000" />
           </div>
           <div class="db-row">
             <label for="ratesFile">Upload File</label>

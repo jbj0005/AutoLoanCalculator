@@ -1,0 +1,10 @@
+
+> autoloan@1.0.0 dev
+> vite --port 5173 --strictPort false
+
+2:23:58 PM [vite] (client) Re-optimizing dependencies because vite config has changed
+
+  VITE v7.1.5  ready in 171 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: use --host to expose
