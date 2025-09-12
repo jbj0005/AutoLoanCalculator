@@ -453,7 +453,7 @@ function parsePriceExpression(raw, msrp = 0) {
     const amt  = preset?.amount ?? "";
     row.innerHTML = `
       <input class="fee-desc" type="text" placeholder="Description" aria-label="Fee description" enterkeyhint="next" value="${desc}" />
-      <input class="fee-amount" type="number" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" enterkeyhint="next" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
+      <input class="fee-amount" type="text" inputmode="decimal" placeholder="Enter Amount" aria-label="Fee amount" enterkeyhint="next" value="${Number.isFinite(amt) ? fmtCurrency(amt) : ""}" />
       <button type="button" class="fee-remove" aria-label="Remove fee">✕</button>
     `;
     targetList.appendChild(row);
@@ -1785,21 +1785,25 @@ const onFPChange = () => {
         // If there's a last row with an empty amount, fill it; else add a new row
         const rows = $$(".fee-row", govList);
         const lastRow = rows[rows.length - 1];
-        const lastAmtEl = lastRow ? $(".fee-amount", lastRow) : null;
+        let lastAmtEl = lastRow ? $(".fee-amount", lastRow) : null;
         const lastDescEl = lastRow ? $(".fee-desc", lastRow) : null;
         const lastAmtVal = lastAmtEl ? parseCurrency(lastAmtEl.value) : 0;
         const lastDescVal = lastDescEl ? (lastDescEl.value || "").trim() : "";
 
         if (lastRow && (!lastAmtVal || lastAmtEl?.value === "")) {
           if (lastDescEl && !lastDescVal) lastDescEl.value = desc;
-          if (lastAmtEl) lastAmtEl.value = fmtCurrency(amount);
+          if (lastAmtEl) {
+            try { lastAmtEl.type = 'text'; } catch {}
+            lastAmtEl.value = fmtCurrency(amount);
+          }
           computeAll();
-          lastAmtEl?.focus?.();
-          lastAmtEl?.select?.();
+          try { focusNextInput(lastAmtEl); } catch {}
         } else {
           addFeeRow(govList, { desc, amount });
           try { ensureEnterKeyHints(); } catch {}
-          $$(".fee-amount", govList).slice(-1)[0]?.focus?.();
+          lastAmtEl = $$(".fee-amount", govList).slice(-1)[0] || null;
+          // After auto-fill, skip focusing amount and jump to next input for quicker flow
+          try { focusNextInput(lastAmtEl); } catch {}
           computeAll();
         }
 
