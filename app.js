@@ -1756,22 +1756,55 @@ const onFPChange = () => {
 
     const govSelect = document.getElementById("govFeePreset");
     govSelect?.addEventListener("change", (e) => {
-      const opt = e.currentTarget.selectedOptions?.[0];
-      if (!opt || !govList) return;
+      const sel = e.currentTarget || e.target;
+      if (!sel || !govList) return;
+      const opt = sel.selectedOptions && sel.selectedOptions[0]
+        ? sel.selectedOptions[0]
+        : sel.options?.[sel.selectedIndex];
+      if (!opt) return;
 
-      const tryVals = [opt.dataset.amount, opt.getAttribute("data-amount"), opt.value, opt.textContent];
+      // Resolve amount from multiple sources
+      const tryVals = [
+        opt.dataset?.amount,
+        opt.getAttribute?.("data-amount"),
+        opt.value,
+        opt.textContent
+      ];
       let amount = 0;
       for (const v of tryVals) {
         const num = parseCurrency(v);
         if (Number.isFinite(num) && num > 0) { amount = num; break; }
       }
-      const desc = (opt.textContent || opt.value || "").trim() || "Gov't Fee";
+
+      // Resolve description: prefer explicit data-name, then left side of label
+      let desc = opt.dataset?.name || (opt.textContent || opt.value || "").trim();
+      if (desc && /\s[—-]\s/.test(desc)) desc = desc.split(/\s[—-]\s/)[0].trim();
+      if (!desc) desc = "Gov't Fee";
 
       if (amount > 0) {
-        addFeeRow(govList, { desc, amount });
-        e.currentTarget.selectedIndex = 0; // reset
-        $$(".fee-amount", govList).slice(-1)[0]?.focus?.();
-        computeAll();
+        // If there's a last row with an empty amount, fill it; else add a new row
+        const rows = $$(".fee-row", govList);
+        const lastRow = rows[rows.length - 1];
+        const lastAmtEl = lastRow ? $(".fee-amount", lastRow) : null;
+        const lastDescEl = lastRow ? $(".fee-desc", lastRow) : null;
+        const lastAmtVal = lastAmtEl ? parseCurrency(lastAmtEl.value) : 0;
+        const lastDescVal = lastDescEl ? (lastDescEl.value || "").trim() : "";
+
+        if (lastRow && (!lastAmtVal || lastAmtEl?.value === "")) {
+          if (lastDescEl && !lastDescVal) lastDescEl.value = desc;
+          if (lastAmtEl) lastAmtEl.value = fmtCurrency(amount);
+          computeAll();
+          lastAmtEl?.focus?.();
+          lastAmtEl?.select?.();
+        } else {
+          addFeeRow(govList, { desc, amount });
+          try { ensureEnterKeyHints(); } catch {}
+          $$(".fee-amount", govList).slice(-1)[0]?.focus?.();
+          computeAll();
+        }
+
+        // Reset select back to placeholder
+        try { sel.selectedIndex = 0; } catch {}
       }
     });
 
