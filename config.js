@@ -101,9 +101,25 @@ window.GEOCODE_ON_INPUT = true;
     }
 
     // 3) Expose to app
+    // ---- Fee Sets (public select) ----
+    async function listGovFeeSets(filters = {}){
+      let q = db.from('gov_fee_sets').select('*').order('label', { ascending: true });
+      if (filters.applies_state_code) q = q.eq('applies_state_code', filters.applies_state_code);
+      if (filters.applies_county_fips) q = q.eq('applies_county_fips', filters.applies_county_fips);
+      const { data, error } = await q;
+      if (error) throw error; return data || [];
+    }
+    async function listDealerFeeSets(filters = {}){
+      let q = db.from('dealer_fee_sets').select('*').order('label', { ascending: true });
+      if (filters.applies_state_code) q = q.eq('applies_state_code', filters.applies_state_code);
+      const { data, error } = await q;
+      if (error) throw error; return data || [];
+    }
+
     window.dataApi = {
       listVehicles, createVehicle, updateVehicle, deleteVehicle,
       listScenarios, createScenario, getScenario, deleteScenario,
+      listGovFeeSets, listDealerFeeSets,
     };
     window.state = window.state || {};
     window.state.data = window.dataApi;

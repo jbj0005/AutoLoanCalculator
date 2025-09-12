@@ -1895,6 +1895,95 @@ const onFPChange = () => {
     window.addEventListener("resize", debounce(() => computeAll(), 120));
   }
 
+  async function ensureDbFeePresets(){
+    const data = window.state?.data || window.dataApi;
+    if (!data || typeof data.listGovFeeSets !== 'function') return; // Supabase not configured
+
+    // Pick state filter from UI if available
+    const stSel = document.getElementById('taxStateSelect');
+    const stCode = (stSel?.value || '').toUpperCase() || undefined;
+
+    try {
+      const [govSets, dealerSets] = await Promise.all([
+        data.listGovFeeSets({ applies_state_code: stCode }),
+        data.listDealerFeeSets({ applies_state_code: stCode })
+      ]);
+
+      const govSel = document.getElementById('govFeePreset');
+      if (govSel && Array.isArray(govSets) && govSets.length > 0){
+        // Use first matching set; fall back to first item
+        const chosen = govSets[0];
+        const items = Array.isArray(chosen.items) ? chosen.items : [];
+        const frag = document.createDocumentFragment();
+        // Placeholder
+        const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Presets…';
+        frag.appendChild(ph);
+        // Optional grouping by category
+        const byCat = new Map();
+        for (const it of items){
+          const cat = (it.category || '').trim();
+          if (!byCat.has(cat)) byCat.set(cat, []);
+          byCat.get(cat).push(it);
+        }
+        for (const [cat, list] of byCat){
+          if (cat){
+            const og = document.createElement('optgroup');
+            og.label = cat;
+            for (const it of list){
+              const opt = document.createElement('option');
+              const amt = Number(it.amount ?? it.price ?? 0) || 0;
+              opt.dataset.name = it.name || it.label || '';
+              if (amt > 0) opt.dataset.amount = String(amt);
+              opt.value = amt ? String(amt) : (it.name || '');
+              opt.textContent = amt > 0
+                ? `${opt.dataset.name} — ${fmtCurrency(amt)}`
+                : (opt.dataset.name || '');
+              og.appendChild(opt);
+            }
+            frag.appendChild(og);
+          } else {
+            for (const it of list){
+              const opt = document.createElement('option');
+              const amt = Number(it.amount ?? it.price ?? 0) || 0;
+              opt.dataset.name = it.name || it.label || '';
+              if (amt > 0) opt.dataset.amount = String(amt);
+              opt.value = amt ? String(amt) : (it.name || '');
+              opt.textContent = amt > 0
+                ? `${opt.dataset.name} — ${fmtCurrency(amt)}`
+                : (opt.dataset.name || '');
+              frag.appendChild(opt);
+            }
+          }
+        }
+        // Replace options
+        govSel.innerHTML = '';
+        govSel.appendChild(frag);
+      }
+
+      const dealerSel = document.getElementById('dealerFeePreset');
+      if (dealerSel && Array.isArray(dealerSets) && dealerSets.length > 0){
+        const chosen = dealerSets[0];
+        const items = Array.isArray(chosen.items) ? chosen.items : [];
+        const frag = document.createDocumentFragment();
+        const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Presets…';
+        frag.appendChild(ph);
+        for (const it of items){
+          const opt = document.createElement('option');
+          const amt = Number(it.amount ?? it.price ?? 0) || 0;
+          opt.dataset.name = it.name || it.label || '';
+          if (amt > 0) opt.dataset.amount = String(amt);
+          opt.value = opt.dataset.name || '';
+          opt.textContent = opt.dataset.name || '';
+          frag.appendChild(opt);
+        }
+        dealerSel.innerHTML = '';
+        dealerSel.appendChild(frag);
+      }
+    } catch (e){
+      console.warn('ensureDbFeePresets failed', e);
+    }
+  }
+
   /* =========================
      Vehicles: fetch + render
   ========================= */
@@ -1965,6 +2054,7 @@ const onFPChange = () => {
     try { wireInputs(); } catch {}
     try { ensureEnterKeyHints(); } catch {}
     try { await initTaxSelectors(); } catch {}
+    try { await ensureDbFeePresets(); } catch {}
     try {
       const form = document.getElementById('calcForm');
       form?.addEventListener('submit', (e)=>{
