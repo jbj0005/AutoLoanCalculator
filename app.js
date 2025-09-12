@@ -1709,6 +1709,8 @@ const onFPChange = () => {
     if (financeNegEqBox) { financeNegEqBox.checked = true; financeNegEqBox.addEventListener('change', computeAll); }
     document.getElementById("financeTF")?.addEventListener("change", computeAll);
     document.getElementById("goalAutoApply")?.addEventListener("change", computeAll);
+    // Rebuild fee presets on state change to pick state-specific fee sets
+    document.getElementById('taxStateSelect')?.addEventListener('change', () => { try { ensureDbFeePresets(); } catch {} });
 
     // Vehicle select updates MSRP
     document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {      const opt  = e.currentTarget.selectedOptions?.[0];
