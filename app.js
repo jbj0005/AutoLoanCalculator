@@ -1289,21 +1289,61 @@ input.addEventListener("blur", () => {
   }
 
   // Ensure enter/return key hint shows on mobile numeric keypads
+  // Improvements:
+  // - Supports explicit opt-in via `input.apply-enterkeyhints`
+  // - Allows per-input override via `data-enterkeyhint="next|done|go|search|send|enter"`
+  // - Centralized selector→hint mapping via `window.enterKeyHintsConfig`
   function ensureEnterKeyHints(){
     try{
-      const all = document.querySelectorAll('input');
-      all.forEach(el => {
+      const cfg = window.enterKeyHintsConfig || {
+        defaultHint: 'done',
+        selectorHints: [
+          { selector: '.fee-desc, .fee-amount', hint: 'next' },
+          { selector: '#apr, #term', hint: 'next' }
+        ],
+        // If any inputs have this class, only process those; otherwise process all inputs
+        selectorFilter: 'input.apply-enterkeyhints'
+      };
+
+      let candidates = document.querySelectorAll(cfg.selectorFilter);
+      if (!candidates || candidates.length === 0) {
+        candidates = document.querySelectorAll('input');
+      }
+
+      candidates.forEach(el => {
         if (!el || el.type === 'hidden') return;
-        const isNumeric = /^(numeric|decimal)$/i.test(el.getAttribute('inputmode') || '') || /^(tel|search|text)$/i.test(el.type || '');
-        if (isNumeric && !el.hasAttribute('enterkeyhint')) {
-          // Default to 'done'; fee rows prefer 'next'
-          let hk = (el.classList.contains('fee-desc') || el.classList.contains('fee-amount')) ? 'next' : 'done';
-          if (el.id === 'apr' || el.id === 'term') hk = 'next';
-          try { el.setAttribute('enterkeyhint', hk); } catch {}
-        }
+
+        const inputmode = (el.getAttribute('inputmode') || '').toLowerCase();
+        const type = (el.type || '').toLowerCase();
+        const isNumeric = /^(numeric|decimal)$/.test(inputmode) || /^(tel|search|text)$/.test(type);
+
         // Always keep type="text" for numeric inputs to keep Return key visible
-        if (/^(numeric|decimal)$/i.test(el.getAttribute('inputmode') || '') && el.type === 'number') {
+        if (/^(numeric|decimal)$/.test(inputmode) && type === 'number') {
           try { el.type = 'text'; } catch {}
+        }
+
+        // Determine whether to apply a hint to this element
+        const explicitlyMarked = el.classList.contains('apply-enterkeyhints') || el.hasAttribute('data-enterkeyhint');
+        const shouldApply = explicitlyMarked || isNumeric;
+        if (!shouldApply) return;
+
+        const existing = el.getAttribute('enterkeyhint');
+
+        // Resolve desired hint: data attribute > selector mapping > default
+        let hk = (el.dataset && el.dataset.enterkeyhint) ? String(el.dataset.enterkeyhint).toLowerCase() : '';
+        if (!hk) {
+          for (const m of (cfg.selectorHints || [])) {
+            try { if (m && m.selector && el.matches(m.selector)) { hk = m.hint; break; } } catch {}
+          }
+        }
+        if (!hk) hk = cfg.defaultHint || 'done';
+
+        // If data attribute is present, override; else set only if not already set
+        const hasDataOverride = el.hasAttribute('data-enterkeyhint');
+        if (hasDataOverride) {
+          if (existing !== hk) { try { el.setAttribute('enterkeyhint', hk); } catch {} }
+        } else if (!existing) {
+          try { el.setAttribute('enterkeyhint', hk); } catch {}
         }
       });
     } catch {}
