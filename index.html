@@ -20,6 +20,19 @@
   <!-- Optional geocoding + Supabase RPC bridge for live taxes -->
   <script defer src="js/location-hooks.js"></script>
 
+  <!-- Default enter key hint configuration (must load before app.js) -->
+  <script>
+    window.enterKeyHintsConfig = window.enterKeyHintsConfig || {
+      defaultHint: 'done',
+      selectorHints: [
+        { selector: '.fee-desc, .fee-amount', hint: 'next' },
+        { selector: '#apr, #term', hint: 'next' }
+      ],
+      // If present on the page, only inputs matching this selector are processed
+      selectorFilter: 'input.apply-enterkeyhints'
+    };
+  </script>
+
   <!-- App (defer so it runs after the above scripts are parsed) -->
   <script defer src="app.js"></script>
 </head>
