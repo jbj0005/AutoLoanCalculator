@@ -1,0 +1,34 @@
+# OS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env (keep an example committed)
+.env
+.env.*
+!.env.example
+
+# Vite/build/cache
+dist/
+.vite/
+.vite-*
+*.tsbuildinfo
+
+# Tooling caches
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.turbo/
+.cache/
+coverage/
+
+# Dev server logs/PIDs
+.vite-dev.log
+.vite-dev.pid
+
