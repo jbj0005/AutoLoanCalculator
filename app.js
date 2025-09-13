@@ -561,6 +561,18 @@ function parsePriceExpression(raw, msrp = 0) {
     return Number.isFinite(n) && n > 0 ? n : 0;
   }
 
+  // Keep any summary UI in sync with selected vehicle; safe no-op if elements are absent
+  function updateVehicleSummary(){
+    try {
+      const name = (state.selectedVehicle?.name || '').trim();
+      const msrp = Number(state.selectedVehicle?.msrp);
+      const nameEl = document.getElementById('summaryVehicle');
+      const msrpEl = document.getElementById('summaryMsrp');
+      if (nameEl) nameEl.textContent = name || '—';
+      if (msrpEl) msrpEl.textContent = Number.isFinite(msrp) && msrp > 0 ? fmtCurrency(msrp) : '—';
+    } catch {}
+  }
+
   /* =========================
      Trade equity output
   ========================= */
@@ -1427,7 +1439,17 @@ input.addEventListener("blur", () => {
     const name = (opt?.textContent || '').replace(/\s+—\s+\$.*$/, '').trim();
     const msrp = Number(opt?.dataset?.msrp || opt?.getAttribute('data-msrp')) || 0;
     state.selectedVehicle = { name, msrp };
-    updateVehicleSummary();
+    try { updateVehicleSummary(); } catch {}
+    // If Final Price is blank and user hasn't typed in it yet, default to MSRP
+    try {
+      const fpEl = document.getElementById('finalPrice');
+      const raw = fpEl?.value || '';
+      const dirty = !!state._fpDirty;
+      if (fpEl && !dirty && (!raw || raw.trim() === '')) {
+        try { fpEl.type = 'text'; } catch {}
+        fpEl.value = msrp > 0 ? fmtCurrency(msrp) : '';
+      }
+    } catch {}
     computeAll();
     // If Final Price expression references MSRP, re-run compute to reflect new MSRP
     try {
@@ -1713,23 +1735,29 @@ const onFPChange = () => {
     document.getElementById('taxStateSelect')?.addEventListener('change', () => { try { ensureDbFeePresets(); } catch {} });
 
     // Vehicle select updates MSRP
-    document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {      const opt  = e.currentTarget.selectedOptions?.[0];
+    document.getElementById("vehicleSelect")?.addEventListener("change", (e) => {
+      const opt  = e.currentTarget.selectedOptions?.[0];
       const msrp = Number(opt?.dataset?.msrp || 0);
-      const name = (opt?.textContent || "").trim();
+      const name = (opt?.textContent || "").replace(/\s+—\s+\$.*$/, '').trim();
       if (name || msrp > 0) state.selectedVehicle = { name, msrp: Number.isFinite(msrp) ? msrp : 0 };
-      updateVehicleSummary();
+      try { updateVehicleSummary(); } catch {}
 
       // If the Final Price was entered as an MSRP-based expression, re-evaluate for the new vehicle MSRP
       try {
         const msrpNow = Number.isFinite(Number(state.selectedVehicle?.msrp)) ? Number(state.selectedVehicle.msrp) : getMsrpFromUI();
+        const fpEl = document.getElementById("finalPrice");
         if (state.finalPriceWasExpr && state.finalPriceExprRaw && msrpNow > 0) {
-          const fpEl = document.getElementById("finalPrice");
           const evaluated = parsePriceExpression(state.finalPriceExprRaw, msrpNow);
-          if (fpEl) fpEl.value = evaluated ? fmtCurrency(evaluated) : "";
+          if (fpEl) { try { fpEl.type = 'text'; } catch {}; fpEl.value = evaluated ? fmtCurrency(evaluated) : ""; }
+        } else if (fpEl && !state._fpDirty && (!fpEl.value || fpEl.value.trim() === '')) {
+          // If user hasn't typed anything and field is blank, default to MSRP
+          try { fpEl.type = 'text'; } catch {}
+          fpEl.value = msrpNow > 0 ? fmtCurrency(msrpNow) : '';
         }
       } catch {}
 
-      computeAll();});
+      computeAll();
+    });
 
     // Dealer fees
     const dealerList = document.getElementById("dealerFeesList");
