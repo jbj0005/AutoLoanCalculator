@@ -11,14 +11,8 @@
   <!-- Supabase: use UMD so window.supabase is defined -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <!-- Your keys/config must load before app.js -->
-  <script type="module" src="config.js"></script>
-  <!-- App constants (defaults & limits) -->
-  <script defer src="vars.js"></script>
-  <!-- Tax data loader (preloads Supabase tax_rates and exposes getCountyRate) -->
-  <script defer src="js/tax-data.js"></script>
-  <!-- Optional geocoding + Supabase RPC bridge for live taxes -->
-  <script defer src="js/location-hooks.js"></script>
+  <!-- App entry (Vite): loads config/vars/hooks/app in order -->
+  <script type="module" src="main.js"></script>
 
   <!-- Default enter key hint configuration (must load before app.js) -->
   <script>
@@ -33,8 +27,7 @@
     };
   </script>
 
-  <!-- App (defer so it runs after the above scripts are parsed) -->
-  <script defer src="app.js"></script>
+  <!-- App is loaded via main.js (module) -->
 </head>
  <body>
     <header class="app-header">
