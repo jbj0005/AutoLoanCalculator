@@ -38,6 +38,22 @@ jobs:
               echo "$v=present"
             fi
           done
+          # Basic sanity checks to catch common mistakes
+          # 1) URL should end with .supabase.co
+          case "$VITE_SUPABASE_URL" in
+            https://*.supabase.co) : ;;
+            *) echo "ERROR: VITE_SUPABASE_URL should look like https://<ref>.supabase.co" >&2; missing=1 ;;
+          esac
+          # 2) anon key should look like a JWT (contain two dots) and be reasonably long
+          if [ "$(printf %s "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print NF-1}')" -lt 2 ]; then
+            echo "ERROR: VITE_SUPABASE_ANON_KEY doesn't look like a full JWT (expect three segments separated by dots)." >&2
+            missing=1
+          fi
+          keylen=$(printf %s "$VITE_SUPABASE_ANON_KEY" | wc -c | tr -d ' ')
+          if [ "$keylen" -lt 80 ]; then
+            echo "ERROR: VITE_SUPABASE_ANON_KEY seems too short ($keylen chars). Paste the entire anon key from Supabase → Settings → API." >&2
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
