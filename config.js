@@ -1,20 +1,22 @@
 // Supabase project credentials (public anon key; RLS must be enabled)
-window.SUPABASE_URL = "https://txndueuqljeujlccngbj.supabase.co";
-window.SUPABASE_ANON_KEY = "sb_publishable_iq_fkrkjHODeoaBOa3vvEA_p9Y3Yz8X";
+// Prefer Vite env vars when available; fall back to window values or placeholders.
+const VENV = (typeof import !== 'undefined' && typeof import.meta !== 'undefined' && import.meta.env) ? import.meta.env : {};
+window.SUPABASE_URL = VENV.VITE_SUPABASE_URL || window.SUPABASE_URL || "";
+window.SUPABASE_ANON_KEY = VENV.VITE_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || "";
+
 // App version (shown in header)
-// config.js
-window.APP_VERSION = 'V0.4.1';
-// Optional: Google Maps API key (Geocoding/Places). Restrict by referrer and APIs.
-// Google integrations removed
-window.GMAPS_API_KEY = "";
+window.APP_VERSION = window.APP_VERSION || 'V0.4.1';
+
+// Optional: Google Maps API keys/toggles via env with safe fallbacks
+window.GMAPS_API_KEY = VENV.VITE_GMAPS_API_KEY || window.GMAPS_API_KEY || "";
 
 // Feature toggles (set to true to enable)
 // Disable Google Places Autocomplete by default to avoid input issues in restricted networks.
-window.ENABLE_GOOGLE_PLACES = false; // PAC mounts lazily; disable eager attach/legacy fallback
+window.ENABLE_GOOGLE_PLACES = (VENV.VITE_ENABLE_GOOGLE_PLACES ?? window.ENABLE_GOOGLE_PLACES ?? false) === true || String(VENV.VITE_ENABLE_GOOGLE_PLACES).toLowerCase() === 'true';
 // Allow geocoding via Google REST on blur/save; set false to fully disable network geocoding
-window.ENABLE_GOOGLE_GEOCODING = true;
+window.ENABLE_GOOGLE_GEOCODING = (VENV.VITE_ENABLE_GOOGLE_GEOCODING ?? window.ENABLE_GOOGLE_GEOCODING ?? true) === true || String(VENV.VITE_ENABLE_GOOGLE_GEOCODING).toLowerCase() === 'true';
 // Avoid geocoding on each keystroke; set true to re-enable live lookup as you type
-window.GEOCODE_ON_INPUT = true;
+window.GEOCODE_ON_INPUT = (VENV.VITE_GEOCODE_ON_INPUT ?? window.GEOCODE_ON_INPUT ?? true) === true || String(VENV.VITE_GEOCODE_ON_INPUT).toLowerCase() === 'true';
 
 // ===== Supabase boot (UMD) + Data API =====
 (function bootSupabaseWithRetry(){

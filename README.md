@@ -44,6 +44,24 @@ Tip: On mobile, add to home screen for an app-like experience.
 3. Wait for Pages to build. Your app will be available at `https://<you>.github.io/<repo>/`.
    - For this repo: https://jbj0005.github.io/AutoLoanCalculator/
 
+## Environment Setup
+
+Use a local `.env` file (Vite-style) for API keys and feature flags. An example is included.
+
+1) Copy `.env.example` to `.env` and fill values:
+
+```
+VITE_SUPABASE_URL=your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_ENABLE_GOOGLE_PLACES=false
+VITE_ENABLE_GOOGLE_GEOCODING=true
+VITE_GEOCODE_ON_INPUT=true
+```
+
+2) The app reads `import.meta.env.*` (when built with Vite) and falls back to `window.*` if running as static files.
+
+3) Do not commit secrets. The public anon key is safe for client use when RLS is configured.
+
 ## Supabase Setup (Optional, for Vehicle DB)
 
 1. Create a new Supabase project.
@@ -70,14 +88,16 @@ for insert to anon
 with check (true);
 ```
 
-3. Get your Project URL and anon key. Copy `config.example.js` → `config.js` and fill in:
+3. Get your Project URL and anon key. Put them in `.env` (preferred) or set them on `window` before `config.js` loads.
+
+4. You can serve locally with Vite to use `.env` automatically:
 
 ```
-window.SUPABASE_URL = "https://YOUR_PROJECT_ID.supabase.co";
-window.SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+npm install
+npm run dev
 ```
 
-4. Commit `config.js` so GitHub Pages can access it (anon key is OK for client reads/writes when RLS is enabled).
+For GitHub Pages (static hosting), either bake env values at build time or set `window.SUPABASE_URL` and `window.SUPABASE_ANON_KEY` via an inline `<script>` before `config.js`.
 
 5. In the app, use the Vehicle Database section to save/load vehicles.
 
