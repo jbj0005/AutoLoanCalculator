@@ -27,6 +27,37 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Preflight – verify Supabase env
+        run: |
+          missing=0
+          for v in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
+            if [ -z "${!v}" ]; then
+              echo "ERROR: Missing $v. Add it under Settings → Secrets and variables → Actions." >&2
+              missing=1
+            else
+              echo "$v=present"
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+
+      - name: Compute GitHub Pages base path
+        run: |
+          if [ -z "${VITE_BASE:-}" ]; then
+            REPO_NAME="${GITHUB_REPOSITORY#*/}"
+            echo "VITE_BASE=/${REPO_NAME}/" >> "$GITHUB_ENV"
+            echo "Computed VITE_BASE=/${REPO_NAME}/"
+          else
+            echo "Using provided VITE_BASE=${VITE_BASE}"
+            echo "VITE_BASE=${VITE_BASE}" >> "$GITHUB_ENV"
+          fi
+        env:
+          VITE_BASE: ${{ vars.VITE_BASE }}
+
       - name: Install dependencies
         run: npm ci
 
@@ -35,8 +66,8 @@ jobs:
         env:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          # Optional override for GitHub Pages base path; defaults in vite.config.js
-          VITE_BASE: ${{ vars.VITE_BASE }}
+          # Base path for GitHub Pages. Prefer repository variable; fallback computed from repo name.
+          VITE_BASE: ${{ env.VITE_BASE }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
@@ -53,4 +84,3 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
-
