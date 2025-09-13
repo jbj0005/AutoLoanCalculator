@@ -1912,71 +1912,76 @@ const onFPChange = () => {
       ]);
 
       const govSel = document.getElementById('govFeePreset');
-      if (govSel && Array.isArray(govSets) && govSets.length > 0){
-        // Use first matching set; fall back to first item
-        const chosen = govSets[0];
-        const items = Array.isArray(chosen.items) ? chosen.items : [];
+      if (govSel){
+        // Always rebuild from Supabase truth. If no rows, leave only placeholder.
         const frag = document.createDocumentFragment();
-        // Placeholder
         const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Presets…';
         frag.appendChild(ph);
-        // Optional grouping by category
-        const byCat = new Map();
-        for (const it of items){
-          const cat = (it.category || '').trim();
-          if (!byCat.has(cat)) byCat.set(cat, []);
-          byCat.get(cat).push(it);
-        }
-        for (const [cat, list] of byCat){
-          if (cat){
-            const og = document.createElement('optgroup');
-            og.label = cat;
-            for (const it of list){
-              const opt = document.createElement('option');
-              const amt = Number(it.amount ?? it.price ?? 0) || 0;
-              opt.dataset.name = it.name || it.label || '';
-              if (amt > 0) opt.dataset.amount = String(amt);
-              opt.value = amt ? String(amt) : (it.name || '');
-              opt.textContent = amt > 0
-                ? `${opt.dataset.name} — ${fmtCurrency(amt)}`
-                : (opt.dataset.name || '');
-              og.appendChild(opt);
-            }
-            frag.appendChild(og);
-          } else {
-            for (const it of list){
-              const opt = document.createElement('option');
-              const amt = Number(it.amount ?? it.price ?? 0) || 0;
-              opt.dataset.name = it.name || it.label || '';
-              if (amt > 0) opt.dataset.amount = String(amt);
-              opt.value = amt ? String(amt) : (it.name || '');
-              opt.textContent = amt > 0
-                ? `${opt.dataset.name} — ${fmtCurrency(amt)}`
-                : (opt.dataset.name || '');
-              frag.appendChild(opt);
+
+        if (Array.isArray(govSets) && govSets.length > 0){
+          const chosen = govSets[0];
+          const items = Array.isArray(chosen.items) ? chosen.items : [];
+          const byCat = new Map();
+          for (const it of items){
+            const cat = (it.category || '').trim();
+            if (!byCat.has(cat)) byCat.set(cat, []);
+            byCat.get(cat).push(it);
+          }
+          for (const [cat, list] of byCat){
+            if (cat){
+              const og = document.createElement('optgroup');
+              og.label = cat;
+              for (const it of list){
+                const opt = document.createElement('option');
+                const amt = Number(it.amount ?? it.price ?? 0) || 0;
+                opt.dataset.name = it.name || it.label || '';
+                if (amt > 0) opt.dataset.amount = String(amt);
+                opt.value = amt ? String(amt) : (it.name || '');
+                opt.textContent = amt > 0 ? `${opt.dataset.name} — ${fmtCurrency(amt)}` : (opt.dataset.name || '');
+                og.appendChild(opt);
+              }
+              frag.appendChild(og);
+            } else {
+              for (const it of list){
+                const opt = document.createElement('option');
+                const amt = Number(it.amount ?? it.price ?? 0) || 0;
+                opt.dataset.name = it.name || it.label || '';
+                if (amt > 0) opt.dataset.amount = String(amt);
+                opt.value = amt ? String(amt) : (it.name || '');
+                opt.textContent = amt > 0 ? `${opt.dataset.name} — ${fmtCurrency(amt)}` : (opt.dataset.name || '');
+                frag.appendChild(opt);
+              }
             }
           }
+          try { govSel.disabled = false; } catch {}
+        } else {
+          try { govSel.disabled = true; } catch {}
         }
-        // Replace options
         govSel.innerHTML = '';
         govSel.appendChild(frag);
       }
 
       const dealerSel = document.getElementById('dealerFeePreset');
-      if (dealerSel && Array.isArray(dealerSets) && dealerSets.length > 0){
-        const chosen = dealerSets[0];
-        const items = Array.isArray(chosen.items) ? chosen.items : [];
+      if (dealerSel){
         const frag = document.createDocumentFragment();
         const ph = document.createElement('option'); ph.value = ''; ph.textContent = 'Presets…';
         frag.appendChild(ph);
-        for (const it of items){
-          const opt = document.createElement('option');
-          const amt = Number(it.amount ?? it.price ?? 0) || 0;
-          opt.dataset.name = it.name || it.label || '';
-          if (amt > 0) opt.dataset.amount = String(amt);
-          opt.value = opt.dataset.name || '';
-          opt.textContent = opt.dataset.name || '';
-          frag.appendChild(opt);
+
+        if (Array.isArray(dealerSets) && dealerSets.length > 0){
+          const chosen = dealerSets[0];
+          const items = Array.isArray(chosen.items) ? chosen.items : [];
+          for (const it of items){
+            const opt = document.createElement('option');
+            const amt = Number(it.amount ?? it.price ?? 0) || 0;
+            opt.dataset.name = it.name || it.label || '';
+            if (amt > 0) opt.dataset.amount = String(amt);
+            opt.value = opt.dataset.name || '';
+            opt.textContent = opt.dataset.name || '';
+            frag.appendChild(opt);
+          }
+          try { dealerSel.disabled = false; } catch {}
+        } else {
+          try { dealerSel.disabled = true; } catch {}
         }
         dealerSel.innerHTML = '';
         dealerSel.appendChild(frag);
