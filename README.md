@@ -1,4 +1,4 @@
-# Auto Loan Calculator (GitHub Pages) — v0.4.1
+# Auto Loan Calculator (GitHub Pages) — v0.4.2
 
 Live site: https://jbj0005.github.io/AutoLoanCalculator/
 
@@ -39,10 +39,38 @@ Tip: On mobile, add to home screen for an app-like experience.
 
 ## Deploy to GitHub Pages
 
-1. Push this project to your repository (e.g. `AutoLoanCalculator`).
-2. In GitHub: Settings → Pages → Build and deployment → Source = Deploy from branch. Choose `main` and root (`/`).
-3. Wait for Pages to build. Your app will be available at `https://<you>.github.io/<repo>/`.
+Two options are supported:
+
+- No‑secrets (recommended, simple): commit a public `.env.production` with your publishable/anon keys.
+- Secrets‑based (optional): provide secrets to the workflow instead of committing `.env.production`.
+
+### A) No‑secrets deploy (committed env)
+
+1) Fill `./.env.production` with your publishable/anon key and URL:
+
+```
+VITE_SUPABASE_URL=https://<project-ref>.supabase.co
+VITE_SUPABASE_ANON_KEY=sb_publishable_xxx or anon JWT (not service_role)
+```
+
+2) Push to `main`. The workflow builds with Vite and deploys `dist/` to Pages.
+
+3) Your site will be available at `https://<you>.github.io/<repo>/`.
    - For this repo: https://jbj0005.github.io/AutoLoanCalculator/
+
+Verification (CI): In the Actions run → job `build` → step “Preflight – read .env.production (no secrets)”, you’ll see:
+- `VITE_SUPABASE_URL present: yes`
+- `Supabase key: segments(dots)=… length(chars)=…` (JWT-like or publishable)
+
+### B) Secrets‑based deploy (optional)
+
+If you prefer not to commit env, add repo secrets and variables, then push:
+- Secrets → `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+- Variable (optional) → `VITE_BASE=/YourRepoName/`
+
+Notes
+- Never use `service_role` in the browser. The workflow blocks it.
+- You can also set `window.SUPABASE_URL` / `window.SUPABASE_ANON_KEY` inline in `index.html`; Vite env takes precedence.
 
 ## Environment Setup
 

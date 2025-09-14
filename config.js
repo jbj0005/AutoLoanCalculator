@@ -10,7 +10,7 @@ if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
 }
 
 // App version (shown in header)
-window.APP_VERSION = VENV.VITE_APP_VERSION || window.APP_VERSION || 'V0.4.1';
+window.APP_VERSION = VENV.VITE_APP_VERSION || window.APP_VERSION || 'V0.4.2';
 
 // Optional: Google Maps API keys/toggles via env with safe fallbacks
 window.GMAPS_API_KEY = VENV.VITE_GMAPS_API_KEY || window.GMAPS_API_KEY || "";

@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.4.2 - 2025-09-14
+- Build/Deploy: Add no‑secrets GitHub Pages workflow path that reads `.env.production` from the repo (publishable/anon keys only)
+- CI: Print Supabase key diagnostics (segments/length) and block `service_role` only
+- Deploy: Compute `VITE_BASE` from repo name when not provided
+- Supabase: Add safe window fallbacks in `index.html` and fix production URL
+- Version: Bump header/version pill and `APP_VERSION` to V0.4.2
+
+[Compare changes](https://github.com/jbj0005/AutoLoanCalculator/compare/v0.4.1...v0.4.2)
+
 ## v0.4.1 - 2025-09-11
 - UX: Only show “Asking vs. Offer Delta” when an Asking Price is entered
 - UX: Dealer Fee preset selection moves focus to the amount field
