@@ -11,7 +11,11 @@
   <!-- Supabase: use UMD so window.supabase is defined -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 
-  <script> window.SUPABASE_URL = 'https://https://txndueuqljeujlccngbj.supabase.co'; window.SUPABASE_ANON_KEY = 'sb_publishable_iq_fkrkjHODeoaBOa3vvEA_p9Y3Yz8X'; </script>
+  <script>
+    // Fallback values (only used if not set by Vite via config.js)
+    window.SUPABASE_URL ??= 'https://txndueuqljeujlccngbj.supabase.co';
+    window.SUPABASE_ANON_KEY ??= 'sb_publishable_iq_fkrkjHODeoaBOa3vvEA_p9Y3Yz8X';
+  </script>
 
   <!-- App entry (Vite): loads config/vars/hooks/app in order -->
   <script type="module" src="main.js"></script>
