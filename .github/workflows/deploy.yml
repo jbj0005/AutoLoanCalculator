@@ -44,17 +44,7 @@ jobs:
             https://*.supabase.co) : ;;
             *) echo "ERROR: VITE_SUPABASE_URL should look like https://<ref>.supabase.co" >&2; missing=1 ;;
           esac
-          # 2) Key shape sanity (JWT-like)
-          if [ "$(printf %s "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print NF-1}')" -lt 2 ]; then
-            echo "ERROR: VITE_SUPABASE_ANON_KEY doesn't look like a full JWT (expect three segments separated by dots)." >&2
-            missing=1
-          fi
-          keylen=$(printf %s "$VITE_SUPABASE_ANON_KEY" | wc -c | tr -d ' ')
-          if [ "$keylen" -lt 80 ]; then
-            echo "ERROR: VITE_SUPABASE_ANON_KEY seems too short ($keylen chars). Paste the entire anon key from Supabase → Settings → API." >&2
-            missing=1
-          fi
-          # 3) Ensure the JWT role is anon (never service_role in client)
+          # 2) If the key is a JWT, ensure it's NOT service_role (anon or publishable is OK)
           payload=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print $2}') || payload=""
           if [ -n "$payload" ]; then
             # URL-safe base64 decode with padding
@@ -65,15 +55,15 @@ jobs:
             role=$(printf '%s' "$decoded" | sed -n 's/.*"role"\s*:\s*"\([^"]*\)".*/\1/p')
             if [ -n "$role" ]; then
               echo "JWT role=$role"
-              if [ "$role" != "anon" ]; then
-                echo "ERROR: Supabase key role is \"$role\". Use the anon public key, not service_role." >&2
+              if [ "$role" = "service_role" ]; then
+                echo "ERROR: Supabase key role is service_role. Use anon/publishable key in the client." >&2
                 missing=1
               fi
             else
-              echo "WARN: Could not decode JWT to verify role" >&2
+              echo "WARN: Could not decode JWT role; continuing (publishable keys may not be JWTs)" >&2
             fi
           else
-            echo "WARN: Could not parse JWT payload" >&2
+            echo "INFO: Key does not appear to be a JWT; assuming publishable client key and continuing" >&2
           fi
           if [ "$missing" -ne 0 ]; then
             exit 1
