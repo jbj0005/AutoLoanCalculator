@@ -45,6 +45,11 @@ jobs:
             *) echo "ERROR: VITE_SUPABASE_URL should look like https://<ref>.supabase.co" >&2; missing=1 ;;
           esac
           # 2) If the key is a JWT, ensure it's NOT service_role (anon or publishable is OK)
+          #    Also print a non-blocking diagnostic for key length and dot segments
+          segcount=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print NF-1}') || segcount=0
+          keylen=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | wc -c | tr -d ' ')
+          echo "Supabase key: segments(dots)=$segcount length(chars)=$keylen"
+          if [ "$segcount" -ge 2 ]; then echo "Key looks JWT-like"; else echo "Key looks publishable/non-JWT"; fi
           payload=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print $2}') || payload=""
           if [ -n "$payload" ]; then
             # URL-safe base64 decode with padding
