@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -f .env.production ]; then
-            echo "WARN: .env.production not found. Build will proceed without injected env (app may rely on window.*)."
+            echo "WARN: .env.production not found. Build will proceed without injected env."
             exit 0
           fi
           # Extract values from .env.production
@@ -40,12 +40,8 @@ jobs:
           if [ -z "${URL:-}" ] || [ -z "${KEY:-}" ]; then
             echo "WARN: One or both values missing in .env.production (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)."
           fi
-          echo "VITE_SUPABASE_URL present: $([ -n "${URL:-}" ] && echo yes || echo no)"
-          segcount=$(printf '%s' "${KEY:-}" | awk -F. '{print NF-1}') || segcount=0
-          keylen=$(printf '%s' "${KEY:-}" | wc -c | tr -d ' ')
-          echo "Supabase key: segments(dots)=$segcount length(chars)=$keylen"
-          if [ "$segcount" -ge 2 ]; then echo "Key looks JWT-like"; else echo "Key looks publishable/non-JWT"; fi
           # If JWT, block service_role only
+          segcount=$(printf '%s' "${KEY:-}" | awk -F. '{print NF-1}') || segcount=0
           if [ "$segcount" -ge 2 ]; then
             payload=$(printf '%s' "$KEY" | awk -F. '{print $2}') || payload=""
             if [ -n "$payload" ]; then
@@ -54,12 +50,9 @@ jobs:
               if [ "$mod" -eq 2 ]; then b64="${b64}=="; elif [ "$mod" -eq 3 ]; then b64="${b64}="; fi
               decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null || true)
               role=$(printf '%s' "$decoded" | sed -n 's/.*"role"\s*:\s*"\([^"]*\)".*/\1/p')
-              if [ -n "$role" ]; then
-                echo "JWT role=$role"
-                if [ "$role" = "service_role" ]; then
-                  echo "ERROR: Supabase key role is service_role. Use anon/publishable key in the client." >&2
-                  exit 1
-                fi
+              if [ "$role" = "service_role" ]; then
+                echo "ERROR: Supabase key role is service_role. Use anon/publishable key in the client." >&2
+                exit 1
               fi
             fi
           fi
@@ -101,3 +94,28 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  smoke:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test deployed site
+        run: |
+          set -euo pipefail
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+          OWNER="${GITHUB_REPOSITORY%%/*}"
+          BASE="/${REPO_NAME}/"
+          URL="https://${OWNER}.github.io${BASE}"
+          echo "Checking ${URL}"
+          # Retry loop for propagation
+          for i in $(seq 1 12); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || true)
+            if [ "$code" = "200" ]; then break; fi; sleep 5; done
+          [ "$code" = "200" ] || { echo "ERROR: Site not reachable" >&2; exit 1; }
+          JS=$(curl -sL "$URL" | sed -n 's/.*\(\/[^\"]*assets\/index-[A-Za-z0-9_]*\.js\).*/\1/p' | head -n1)
+          [ -n "$JS" ] || { echo "ERROR: Could not find built JS asset" >&2; exit 1; }
+          echo "Asset: $JS"
+          BUNDLE=$(curl -sL "https://${OWNER}.github.io$JS")
+          echo "$BUNDLE" | grep -q "VITE_SUPABASE_URL" || { echo "ERROR: Missing VITE_SUPABASE_URL in bundle" >&2; exit 1; }
+          echo "$BUNDLE" | grep -q "VITE_SUPABASE_ANON_KEY" || { echo "ERROR: Missing VITE_SUPABASE_ANON_KEY in bundle" >&2; exit 1; }
+          echo "Smoke test passed"
