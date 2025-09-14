@@ -1,8 +1,13 @@
 // Supabase project credentials (public anon key; RLS must be enabled)
 // If built with Vite, import.meta.env is available (this file is a module).
 const VENV = (typeof import.meta !== 'undefined' && import.meta && import.meta.env) ? import.meta.env : {};
-window.SUPABASE_URL = VENV.VITE_SUPABASE_URL || window.SUPABASE_URL || "";
-window.SUPABASE_ANON_KEY = VENV.VITE_SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || "";
+// Only assign when Vite actually injected values; do NOT overwrite with empty strings
+if (VENV.VITE_SUPABASE_URL)      window.SUPABASE_URL      = VENV.VITE_SUPABASE_URL;
+if (VENV.VITE_SUPABASE_ANON_KEY) window.SUPABASE_ANON_KEY = VENV.VITE_SUPABASE_ANON_KEY;
+
+if (!window.SUPABASE_URL || !window.SUPABASE_ANON_KEY) {
+  console.error('[supabase] Missing SUPABASE_URL/ANON_KEY. If using Vite, ensure this file is loaded with type="module" so import.meta.env is inlined, and that VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY are set at build time.');
+}
 
 // App version (shown in header)
 window.APP_VERSION = VENV.VITE_APP_VERSION || window.APP_VERSION || 'V0.4.1';

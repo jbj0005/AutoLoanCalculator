@@ -13,6 +13,7 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+!.env.production
 
 # Vite/build/cache
 dist/
@@ -31,4 +32,3 @@ coverage/
 # Dev server logs/PIDs
 .vite-dev.log
 .vite-dev.pid
-

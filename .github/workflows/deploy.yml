@@ -27,55 +27,42 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Preflight – verify Supabase env
+      - name: Preflight – read .env.production (no secrets)
         run: |
           set -euo pipefail
-          missing=0
-          for v in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
-            if [ -z "${!v}" ]; then
-              echo "ERROR: Missing $v. Add it under Settings → Secrets and variables → Actions." >&2
-              missing=1
-            else
-              echo "$v=present"
-            fi
-          done
-          # 1) URL should look valid
-          case "$VITE_SUPABASE_URL" in
-            https://*.supabase.co) : ;;
-            *) echo "ERROR: VITE_SUPABASE_URL should look like https://<ref>.supabase.co" >&2; missing=1 ;;
-          esac
-          # 2) If the key is a JWT, ensure it's NOT service_role (anon or publishable is OK)
-          #    Also print a non-blocking diagnostic for key length and dot segments
-          segcount=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print NF-1}') || segcount=0
-          keylen=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | wc -c | tr -d ' ')
+          if [ ! -f .env.production ]; then
+            echo "WARN: .env.production not found. Build will proceed without injected env (app may rely on window.*)."
+            exit 0
+          fi
+          # Extract values from .env.production
+          URL=$(grep -E '^VITE_SUPABASE_URL=' .env.production | head -n1 | cut -d'=' -f2- || true)
+          KEY=$(grep -E '^VITE_SUPABASE_ANON_KEY=' .env.production | head -n1 | cut -d'=' -f2- || true)
+          if [ -z "${URL:-}" ] || [ -z "${KEY:-}" ]; then
+            echo "WARN: One or both values missing in .env.production (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY)."
+          fi
+          echo "VITE_SUPABASE_URL present: $([ -n "${URL:-}" ] && echo yes || echo no)"
+          segcount=$(printf '%s' "${KEY:-}" | awk -F. '{print NF-1}') || segcount=0
+          keylen=$(printf '%s' "${KEY:-}" | wc -c | tr -d ' ')
           echo "Supabase key: segments(dots)=$segcount length(chars)=$keylen"
           if [ "$segcount" -ge 2 ]; then echo "Key looks JWT-like"; else echo "Key looks publishable/non-JWT"; fi
-          payload=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print $2}') || payload=""
-          if [ -n "$payload" ]; then
-            # URL-safe base64 decode with padding
-            b64=$(printf '%s' "$payload" | tr '_-' '/+')
-            mod=$(( ${#b64} % 4 ))
-            if [ "$mod" -eq 2 ]; then b64="${b64}=="; elif [ "$mod" -eq 3 ]; then b64="${b64}="; fi
-            decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null || true)
-            role=$(printf '%s' "$decoded" | sed -n 's/.*"role"\s*:\s*"\([^"]*\)".*/\1/p')
-            if [ -n "$role" ]; then
-              echo "JWT role=$role"
-              if [ "$role" = "service_role" ]; then
-                echo "ERROR: Supabase key role is service_role. Use anon/publishable key in the client." >&2
-                missing=1
+          # If JWT, block service_role only
+          if [ "$segcount" -ge 2 ]; then
+            payload=$(printf '%s' "$KEY" | awk -F. '{print $2}') || payload=""
+            if [ -n "$payload" ]; then
+              b64=$(printf '%s' "$payload" | tr '_-' '/+')
+              mod=$(( ${#b64} % 4 ))
+              if [ "$mod" -eq 2 ]; then b64="${b64}=="; elif [ "$mod" -eq 3 ]; then b64="${b64}="; fi
+              decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null || true)
+              role=$(printf '%s' "$decoded" | sed -n 's/.*"role"\s*:\s*"\([^"]*\)".*/\1/p')
+              if [ -n "$role" ]; then
+                echo "JWT role=$role"
+                if [ "$role" = "service_role" ]; then
+                  echo "ERROR: Supabase key role is service_role. Use anon/publishable key in the client." >&2
+                  exit 1
+                fi
               fi
-            else
-              echo "WARN: Could not decode JWT role; continuing (publishable keys may not be JWTs)" >&2
             fi
-          else
-            echo "INFO: Key does not appear to be a JWT; assuming publishable client key and continuing" >&2
           fi
-          if [ "$missing" -ne 0 ]; then
-            exit 1
-          fi
-        env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
 
       - name: Compute GitHub Pages base path
         run: |
@@ -96,8 +83,6 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           # Base path for GitHub Pages. Prefer repository variable; fallback computed from repo name.
           VITE_BASE: ${{ env.VITE_BASE }}
 
