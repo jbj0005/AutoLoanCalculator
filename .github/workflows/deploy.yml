@@ -29,6 +29,7 @@ jobs:
 
       - name: Preflight – verify Supabase env
         run: |
+          set -euo pipefail
           missing=0
           for v in VITE_SUPABASE_URL VITE_SUPABASE_ANON_KEY; do
             if [ -z "${!v}" ]; then
@@ -38,13 +39,12 @@ jobs:
               echo "$v=present"
             fi
           done
-          # Basic sanity checks to catch common mistakes
-          # 1) URL should end with .supabase.co
+          # 1) URL should look valid
           case "$VITE_SUPABASE_URL" in
             https://*.supabase.co) : ;;
             *) echo "ERROR: VITE_SUPABASE_URL should look like https://<ref>.supabase.co" >&2; missing=1 ;;
           esac
-          # 2) anon key should look like a JWT (contain two dots) and be reasonably long
+          # 2) Key shape sanity (JWT-like)
           if [ "$(printf %s "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print NF-1}')" -lt 2 ]; then
             echo "ERROR: VITE_SUPABASE_ANON_KEY doesn't look like a full JWT (expect three segments separated by dots)." >&2
             missing=1
@@ -54,25 +54,27 @@ jobs:
             echo "ERROR: VITE_SUPABASE_ANON_KEY seems too short ($keylen chars). Paste the entire anon key from Supabase → Settings → API." >&2
             missing=1
           fi
-          # 3) Ensure the JWT role is anon (safety: never deploy service_role to client)
-          node <<'JS'
-          const t = process.env.VITE_SUPABASE_ANON_KEY || '';
-          try {
-            const p = t.split('.')[1];
-            let s = (p || '').replace(/-/g,'+').replace(/_/g,'/');
-            while (s.length % 4) s += '=';
-            const decoded = JSON.parse(Buffer.from(s,'base64').toString('utf8'));
-            const role = decoded.role || 'unknown';
-            if (role !== 'anon') {
-              console.error(`ERROR: Supabase key role is "${role}". Use the anon public key, not service_role.`);
-              process.exit(1);
-            } else {
-              console.log('JWT role=anon');
-            }
-          } catch (e) {
-            console.warn('WARN: Could not decode JWT to verify role:', e.message);
-          }
-JS
+          # 3) Ensure the JWT role is anon (never service_role in client)
+          payload=$(printf '%s' "$VITE_SUPABASE_ANON_KEY" | awk -F. '{print $2}') || payload=""
+          if [ -n "$payload" ]; then
+            # URL-safe base64 decode with padding
+            b64=$(printf '%s' "$payload" | tr '_-' '/+')
+            mod=$(( ${#b64} % 4 ))
+            if [ "$mod" -eq 2 ]; then b64="${b64}=="; elif [ "$mod" -eq 3 ]; then b64="${b64}="; fi
+            decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null || true)
+            role=$(printf '%s' "$decoded" | sed -n 's/.*"role"\s*:\s*"\([^"]*\)".*/\1/p')
+            if [ -n "$role" ]; then
+              echo "JWT role=$role"
+              if [ "$role" != "anon" ]; then
+                echo "ERROR: Supabase key role is \"$role\". Use the anon public key, not service_role." >&2
+                missing=1
+              fi
+            else
+              echo "WARN: Could not decode JWT to verify role" >&2
+            fi
+          else
+            echo "WARN: Could not parse JWT payload" >&2
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
