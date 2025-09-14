@@ -54,6 +54,25 @@ jobs:
             echo "ERROR: VITE_SUPABASE_ANON_KEY seems too short ($keylen chars). Paste the entire anon key from Supabase → Settings → API." >&2
             missing=1
           fi
+          # 3) Ensure the JWT role is anon (safety: never deploy service_role to client)
+          node <<'JS'
+          const t = process.env.VITE_SUPABASE_ANON_KEY || '';
+          try {
+            const p = t.split('.')[1];
+            let s = (p || '').replace(/-/g,'+').replace(/_/g,'/');
+            while (s.length % 4) s += '=';
+            const decoded = JSON.parse(Buffer.from(s,'base64').toString('utf8'));
+            const role = decoded.role || 'unknown';
+            if (role !== 'anon') {
+              console.error(`ERROR: Supabase key role is "${role}". Use the anon public key, not service_role.`);
+              process.exit(1);
+            } else {
+              console.log('JWT role=anon');
+            }
+          } catch (e) {
+            console.warn('WARN: Could not decode JWT to verify role:', e.message);
+          }
+JS
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
